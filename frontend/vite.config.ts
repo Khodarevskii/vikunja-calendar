@@ -21,6 +21,7 @@ const pathSrc = fileURLToPath(new URL('./src', import.meta.url)).replaceAll('\\'
 
 // the @use rules have to be the first in the compiled stylesheets
 const PREFIXED_SCSS_STYLES = `@use "sass:math";
+@use "sass:list";
 @import "${pathSrc}/styles/common-imports.scss";`
 
 /*
