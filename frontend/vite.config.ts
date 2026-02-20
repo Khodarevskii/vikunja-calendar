@@ -97,11 +97,13 @@ function getBuildConfig(env: Record<string, string>) {
 			preprocessorOptions: {
 				sass: {
 					quietDeps: true, // silence deprecation warnings
+					silenceDeprecations: ['import'],
 				},
 				scss: {
 					additionalData: PREFIXED_SCSS_STYLES,
 					charset: false, // fixes  "@charset" must be the first rule in the file" warnings,
 					quietDeps: true, // silence deprecation warnings
+					silenceDeprecations: ['import'],
 				},
 			},
 			postcss: {
