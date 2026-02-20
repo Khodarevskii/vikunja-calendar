@@ -17,6 +17,7 @@ import {
 	faBell,
 	faBolt,
 	faCalendar,
+	faCalendarDays,
 	faCheck,
 	faCheckDouble,
 	faChessKnight,
@@ -124,6 +125,7 @@ library.add(faBars)
 library.add(faBell)
 library.add(faBellSlash)
 library.add(faCalendar)
+library.add(faCalendarDays)
 library.add(faCalendarAlt)
 library.add(faCheck)
 library.add(faCheckDouble)
