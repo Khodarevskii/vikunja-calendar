@@ -216,7 +216,6 @@ function getBuildConfig(env: Record<string, string>) {
 		server: {
 			host: '127.0.0.1', // see: https://github.com/vitejs/vite/pull/8543
 			port: 4173,
-			strictPort: true,
 		},
 		output: {
 			manualChunks: {
