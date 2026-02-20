@@ -182,37 +182,53 @@ function toDatetimeLocal(date: Date): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+// Returns true if a Date falls exactly at midnight UTC (= Vikunja all-day marker)
+function isMidnightUTC(d: Date): boolean {
+	return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0
+}
+
 // Convert task to FullCalendar event
 function taskToEvent(task: ITask): EventInput | null {
 	const hasStart = task.startDate && new Date(task.startDate).getTime() > 0
 	const hasEnd = task.endDate && new Date(task.endDate).getTime() > 0
 	const hasDue = task.dueDate && new Date(task.dueDate).getTime() > 0
 
-	let start: Date | null = null
-	let end: Date | null = null
-	let allDay = false
-
-	if (hasStart && hasEnd) {
-		start = new Date(task.startDate as Date)
-		end = new Date(task.endDate as Date)
-	} else if (hasStart) {
-		start = new Date(task.startDate as Date)
-		end = start
-	} else if (hasDue) {
-		start = new Date(task.dueDate as Date)
-		end = start
-	} else {
+	if (!hasStart && !hasDue) {
 		return null
 	}
 
-	// Check if this is an all-day event (time is midnight)
-	if (
-		start.getHours() === 0 &&
-		start.getMinutes() === 0 &&
-		end.getHours() === 0 &&
-		end.getMinutes() === 0
-	) {
-		allDay = true
+	let start: Date
+	let end: Date
+	let allDay = false
+
+	if (hasStart) {
+		start = new Date(task.startDate as Date)
+		if (hasEnd) {
+			end = new Date(task.endDate as Date)
+			// Both at midnight UTC → all-day range event
+			if (isMidnightUTC(start) && isMidnightUTC(end)) {
+				allDay = true
+			}
+		} else {
+			// No end date: all-day if midnight UTC, otherwise 1-hour duration
+			if (isMidnightUTC(start)) {
+				allDay = true
+				end = new Date(start)
+				end.setUTCDate(end.getUTCDate() + 1)
+			} else {
+				end = new Date(start.getTime() + 60 * 60 * 1000)
+			}
+		}
+	} else {
+		// Only dueDate
+		start = new Date(task.dueDate as Date)
+		if (isMidnightUTC(start)) {
+			allDay = true
+			end = new Date(start)
+			end.setUTCDate(end.getUTCDate() + 1)
+		} else {
+			end = new Date(start.getTime() + 60 * 60 * 1000)
+		}
 	}
 
 	const color = task.hexColor
@@ -238,48 +254,62 @@ function taskToEvent(task: ITask): EventInput | null {
 	}
 }
 
+// Fetch all pages for a given filter query
+async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> {
+	const service = new TaskService()
+	const results: ITask[] = []
+	let page = 1
+	do {
+		const tasks = await service.getAll({} as ITask, {...params, per_page: 500}, page)
+		results.push(...(tasks as ITask[]))
+		page++
+	} while (page <= service.totalPages)
+	return results
+}
+
 // Load tasks for visible calendar range
 async function loadTasks(start: Date, end: Date) {
 	loading.value = true
-
-	const calApi = calendarRef.value?.getApi()
-	calApi?.removeAllEvents()
-
-	const taskService = new TaskService()
 
 	try {
 		const startIso = start.toISOString()
 		const endIso = end.toISOString()
 
-		const [dueTasks, startTasks] = await Promise.all([
-			taskService.getAll({}, {
+		// Three parallel queries:
+		// 1. Tasks whose due date falls in the visible range
+		// 2. Tasks whose start date falls in the visible range
+		// 3. Tasks that span the visible range (started before, end after range start)
+		const [dueTasks, startTasks, spanTasks] = await Promise.all([
+			fetchAllPages({
 				filter: `due_date >= '${startIso}' && due_date <= '${endIso}'`,
 				filter_include_nulls: false,
-				per_page: 500,
 			}),
-			taskService.getAll({}, {
+			fetchAllPages({
 				filter: `start_date >= '${startIso}' && start_date <= '${endIso}'`,
 				filter_include_nulls: false,
-				per_page: 500,
+			}),
+			fetchAllPages({
+				filter: `start_date <= '${startIso}' && end_date >= '${startIso}'`,
+				filter_include_nulls: false,
 			}),
 		])
 
 		// Merge and deduplicate by task id
 		const taskMap = new Map<number, ITask>()
-		for (const task of [...dueTasks, ...startTasks]) {
+		for (const task of [...dueTasks, ...startTasks, ...spanTasks]) {
 			if (!taskMap.has(task.id)) {
 				taskMap.set(task.id, task)
 			}
 		}
 
-		// Add events directly to the calendar API (no reactive intermediate)
-		const freshCalApi = calendarRef.value?.getApi()
-		if (freshCalApi) {
-			freshCalApi.removeAllEvents()
+		// Render events in the calendar
+		const calApi = calendarRef.value?.getApi()
+		if (calApi) {
+			calApi.removeAllEvents()
 			for (const task of taskMap.values()) {
 				const event = taskToEvent(task)
 				if (event) {
-					freshCalApi.addEvent(event)
+					calApi.addEvent(event)
 				}
 			}
 		}
