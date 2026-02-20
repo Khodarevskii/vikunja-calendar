@@ -174,6 +174,14 @@ const router = createRouter({
 			props: route => ({ taskId: Number(route.params.id as string) }),
 		},
 		{
+			path: '/tasks/by/calendar',
+			name: 'tasks.calendar',
+			component: () => import('@/views/tasks/CalendarView.vue'),
+			meta: {
+				title: 'navigation.calendar',
+			},
+		},
+		{
 			path: '/tasks/by/upcoming',
 			name: 'tasks.range',
 			component: UpcomingTasks,
