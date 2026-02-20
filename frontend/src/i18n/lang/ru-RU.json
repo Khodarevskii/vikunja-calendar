@@ -869,6 +869,7 @@
 			"labels": "Метки",
 			"percentDone": "Прогресс",
 			"priority": "Приоритет",
+			"project": "Проект",
 			"relatedTasks": "Связанные задачи",
 			"reminders": "Напоминания",
 			"repeat": "Повтор",
