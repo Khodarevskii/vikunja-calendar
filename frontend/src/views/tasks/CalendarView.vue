@@ -148,9 +148,6 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 // Loading state
 const loading = ref(false)
 
-// Tasks displayed on calendar
-const calendarEvents = ref<EventInput[]>([])
-
 // Projects list for task creation
 const projects = computed(() =>
 	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
@@ -244,17 +241,16 @@ function taskToEvent(task: ITask): EventInput | null {
 // Load tasks for visible calendar range
 async function loadTasks(start: Date, end: Date) {
 	loading.value = true
-	calendarEvents.value = []
+
+	const calApi = calendarRef.value?.getApi()
+	calApi?.removeAllEvents()
 
 	const taskService = new TaskService()
 
 	try {
-		// Build a filter that catches tasks visible in the date range:
-		// tasks with dueDate OR startDate OR endDate in [start, end]
 		const startIso = start.toISOString()
 		const endIso = end.toISOString()
 
-		// Fetch tasks with dueDate in range
 		const [dueTasks, startTasks] = await Promise.all([
 			taskService.getAll({}, {
 				filter: `due_date >= '${startIso}' && due_date <= '${endIso}'`,
@@ -276,26 +272,21 @@ async function loadTasks(start: Date, end: Date) {
 			}
 		}
 
-		const events: EventInput[] = []
-		for (const task of taskMap.values()) {
-			const event = taskToEvent(task)
-			if (event) {
-				events.push(event)
+		// Add events directly to the calendar API (no reactive intermediate)
+		const freshCalApi = calendarRef.value?.getApi()
+		if (freshCalApi) {
+			freshCalApi.removeAllEvents()
+			for (const task of taskMap.values()) {
+				const event = taskToEvent(task)
+				if (event) {
+					freshCalApi.addEvent(event)
+				}
 			}
 		}
-
-		calendarEvents.value = events
 	} catch (e) {
 		console.error('Failed to load calendar tasks', e)
 	} finally {
 		loading.value = false
-	}
-
-	// Update the calendar API events
-	const calApi = calendarRef.value?.getApi()
-	if (calApi) {
-		calApi.removeAllEvents()
-		calApi.addEventSource(calendarEvents.value)
 	}
 }
 
@@ -376,7 +367,6 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	editable: false,
 	nowIndicator: true,
 	dayMaxEvents: true,
-	events: calendarEvents.value,
 	select: handleDateSelect,
 	eventClick: handleEventClick,
 	datesSet: handleDatesSet,
