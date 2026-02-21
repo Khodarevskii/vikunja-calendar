@@ -584,11 +584,15 @@ onMounted(async () => {
 }
 ::v-deep(.fc-theme-standard td, .fc-theme-standard th){
 	border:1px solid var(--border) !important;
+}	
+::v-deep(.calendar-wrapper .fc-day-today .fc-daygrid-day-frame){
+	background: var(--fc-today-bg-color);
 }
-
 ::v-deep(.fc-col-header-cell.fc-day){
 	border:1px solid var(--border) !important;
 }
+
+
 
 :deep(.fc-theme-standard .fc-scrollgrid){
 	border:1px solid var(--border);
@@ -607,12 +611,35 @@ onMounted(async () => {
 	background-color: var(--modal-color) !important;
 	border-color: var(--border) !important;
 }
+
+:deep(.fc-theme-standard .fc-list-day-cushion){
+	background: var(--white);
+	color:var(--input-color)
+}
 :deep(.modal-card-foot){
 	background-color: var(--modal-color) !important;
 	border-color: var(--border) !important;
 }
 :deep(.modal-card){
 	    max-height: calc(80vh - var(--modal-card-spacing));
+}
+
+:deep(.fc .fc-list-event:hover td ){
+    background-color: var(--white);
+	opacity: 0.6;
+}
+:deep(.fc-theme-standard td, .fc-theme-standard th){
+	border:1px solid var(--border) !important;
+}
+:deep(.calendar-wrapper th){
+	border:1px solid var(--border) !important;
+}
+:deep(.calendar-wrapper .fc-list-event-graphic){
+	padding: 10px;
+}
+
+:deep(.calendar-wrapper .fc-theme-standard .fc-list){
+	border:1px solid var(--border) !important;
 }
 
 :deep(.fc-button) {
@@ -633,6 +660,10 @@ onMounted(async () => {
 
 :deep(.fc-daygrid-event) {
 	cursor: pointer;
+}
+
+:deep(.fc-timegrid-axis){
+	border:none
 }
 
 :deep(.fc-highlight) {
