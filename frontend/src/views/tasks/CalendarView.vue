@@ -624,6 +624,14 @@ onMounted(async () => {
 	    max-height: calc(80vh - var(--modal-card-spacing));
 }
 
+:deep(.modal-card-body .datepicker-popup) {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 100;
+}
+
 :deep(.fc .fc-list-event:hover td ){
     background-color: var(--white);
 	opacity: 0.6;
