@@ -195,7 +195,7 @@ import User from '@/components/misc/User.vue'
 import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
 import ProjectUserService from '@/services/projectUsers'
 import {includesById} from '@/helpers/utils'
-import {getDisplayName} from '@/models/user'
+import {getDisplayName, fetchAvatarBlobUrl} from '@/models/user'
 import Datepicker from '@/components/input/Datepicker.vue'
 
 const {t} = useI18n()
@@ -376,6 +376,8 @@ function taskToEvent(task: ITask): EventInput | null {
 		extendedProps: {
 			task,
 			done: task.done,
+			createdBy: task.createdBy,
+			assignees: task.assignees || [],
 		},
 		classNames: task.done ? ['fc-event-done'] : [],
 	}
@@ -543,9 +545,45 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	eventClick: handleEventClick,
 	datesSet: handleDatesSet,
 	height: 'auto',
-	eventDidMount(info) {
+	async eventDidMount(info) {
 		// Add tooltip with task title
 		info.el.title = info.event.title
+
+		// Show avatar for delegated tasks
+		const {createdBy, assignees} = info.event.extendedProps
+		const currentUserId = authStore.info?.id
+		if (!currentUserId || !assignees || assignees.length === 0) return
+
+		let avatarUser: IUser | null = null
+		const isCreator = createdBy?.id === currentUserId
+		const isAssignee = assignees.some((a: IUser) => a.id === currentUserId)
+
+		if (isCreator && !isAssignee) {
+			// Current user created the task — show first assignee's avatar
+			avatarUser = assignees[0]
+		} else if (isAssignee && !isCreator) {
+			// Current user is assigned — show creator's avatar
+			avatarUser = createdBy
+		} else if (isCreator && isAssignee && assignees.length > 1) {
+			// Creator assigned to themselves + others — show another assignee
+			avatarUser = assignees.find((a: IUser) => a.id !== currentUserId) || null
+		}
+
+		if (!avatarUser) return
+
+		const avatarUrl = await fetchAvatarBlobUrl(avatarUser, 20)
+		if (!avatarUrl) return
+
+		const img = document.createElement('img')
+		img.src = avatarUrl
+		img.alt = getDisplayName(avatarUser)
+		img.title = getDisplayName(avatarUser)
+		img.className = 'fc-event-avatar'
+
+		// Find the inner content container and append avatar
+		const inner = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
+		inner.style.position = 'relative'
+		inner.appendChild(img)
 	},
 }))
 
@@ -676,6 +714,23 @@ onMounted(async () => {
 
 :deep(.fc-timegrid-axis){
 	border:none
+}
+
+:deep(.fc-event-main) {
+	padding-right: 24px;
+}
+
+:deep(.fc-event-avatar) {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	position: absolute;
+	right: 2px;
+	top: 50%;
+	transform: translateY(-50%);
+	border: 1.5px solid rgba(255, 255, 255, 0.8);
+	pointer-events: none;
+	object-fit: cover;
 }
 
 :deep(.fc-highlight) {
