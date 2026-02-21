@@ -44,6 +44,17 @@
 						</div>
 					</div>
 					<div class="field">
+						<label class="label">{{ $t('task.attributes.description') }}</label>
+						<div class="control">
+							<textarea
+								v-model="newTask.description"
+								class="textarea"
+								:placeholder="$t('task.attributes.description')"
+								rows="3"
+							/>
+						</div>
+					</div>
+					<div class="field">
 						<label class="label">{{ $t('task.attributes.project') }}</label>
 						<div class="control">
 							<div class="select is-fullwidth">
@@ -201,6 +212,7 @@ const creating = ref(false)
 
 interface NewTaskForm {
 	title: string
+	description: string
 	projectId: number | null
 	dueDateStr: string
 	startDateStr: string
@@ -209,6 +221,7 @@ interface NewTaskForm {
 
 const newTask = ref<NewTaskForm>({
 	title: '',
+	description: '',
 	projectId: null,
 	dueDateStr: '',
 	startDateStr: '',
@@ -433,6 +446,7 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 
 	newTask.value = {
 		title: '',
+		description: '',
 		projectId: projects.value[0]?.id ?? null,
 		dueDateStr: toDatetimeLocal(selectInfo.start),
 		startDateStr: toDatetimeLocal(selectInfo.start),
@@ -459,6 +473,7 @@ async function createTask() {
 	try {
 		const task = new TaskModel({
 			title: newTask.value.title,
+			description: newTask.value.description,
 			projectId: newTask.value.projectId,
 			dueDate: newTask.value.dueDateStr ? new Date(newTask.value.dueDateStr).toISOString() : null,
 			startDate: newTask.value.startDateStr ? new Date(newTask.value.startDateStr).toISOString() : null,
@@ -601,5 +616,28 @@ onMounted(async () => {
 
 :deep(.fc-highlight) {
 	background: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}
+
+.textarea {
+	background-color: var(--input-background-color, var(--scheme-main));
+	color: var(--input-color, var(--text-strong));
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.625rem;
+	width: 100%;
+	resize: vertical;
+	font-family: inherit;
+	font-size: 1rem;
+	transition: border-color 0.2s ease;
+}
+
+.textarea::placeholder {
+	color: var(--input-placeholder-color);
+}
+
+.textarea:focus {
+	border-color: var(--primary);
+	outline: none;
+	box-shadow: 0 0 0 0.125em rgba(var(--primary-h), var(--primary-s), var(--primary-l), 0.25);
 }
 </style>
