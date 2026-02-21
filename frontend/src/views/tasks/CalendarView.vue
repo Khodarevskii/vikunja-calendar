@@ -353,7 +353,6 @@ function taskToEvent(task: ITask): EventInput | null {
 		extendedProps: {
 			task,
 			done: task.done,
-			description: task.description || '',
 		},
 		classNames: task.done ? ['fc-event-done'] : [],
 	}
@@ -522,15 +521,8 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	datesSet: handleDatesSet,
 	height: 'auto',
 	eventDidMount(info) {
+		// Add tooltip with task title
 		info.el.title = info.event.title
-		const description = info.event.extendedProps.description
-		if (description) {
-			const descEl = document.createElement('div')
-			descEl.className = 'fc-event-description'
-			descEl.textContent = description
-			const mainEl = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
-			mainEl.appendChild(descEl)
-		}
 	},
 }))
 
@@ -623,20 +615,6 @@ onMounted(async () => {
 
 :deep(.fc-daygrid-event) {
 	cursor: pointer;
-}
-
-:deep(.fc-event-description) {
-	font-size: 0.75rem;
-	line-height: 1.3;
-	opacity: 0.85;
-	margin-top: 2px;
-	display: -webkit-box;
-	-webkit-line-clamp: 3;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: normal;
-	word-break: break-word;
 }
 
 :deep(.fc-highlight) {
