@@ -73,10 +73,9 @@
 					<div class="field">
 						<label class="label">{{ $t('task.attributes.dueDate') }}</label>
 						<div class="control">
-							<input
-								v-model="newTask.dueDateStr"
-								class="input"
-								type="datetime-local"
+							<Datepicker
+								v-model="newTask.dueDate"
+								:choose-date-label="$t('task.detail.chooseDueDate')"
 							/>
 						</div>
 					</div>
@@ -85,10 +84,9 @@
 							<div class="field">
 								<label class="label">{{ $t('task.attributes.startDate') }}</label>
 								<div class="control">
-									<input
-										v-model="newTask.startDateStr"
-										class="input"
-										type="datetime-local"
+									<Datepicker
+										v-model="newTask.startDate"
+										:choose-date-label="$t('task.detail.chooseStartDate')"
 									/>
 								</div>
 							</div>
@@ -97,10 +95,9 @@
 							<div class="field">
 								<label class="label">{{ $t('task.attributes.endDate') }}</label>
 								<div class="control">
-									<input
-										v-model="newTask.endDateStr"
-										class="input"
-										type="datetime-local"
+									<Datepicker
+										v-model="newTask.endDate"
+										:choose-date-label="$t('task.detail.chooseEndDate')"
 									/>
 								</div>
 							</div>
@@ -187,6 +184,7 @@ import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
 import ProjectUserService from '@/services/projectUsers'
 import {includesById} from '@/helpers/utils'
 import {getDisplayName} from '@/models/user'
+import Datepicker from '@/components/input/Datepicker.vue'
 
 const {t} = useI18n()
 const router = useRouter()
@@ -214,18 +212,18 @@ interface NewTaskForm {
 	title: string
 	description: string
 	projectId: number | null
-	dueDateStr: string
-	startDateStr: string
-	endDateStr: string
+	dueDate: Date | null
+	startDate: Date | null
+	endDate: Date | null
 }
 
 const newTask = ref<NewTaskForm>({
 	title: '',
 	description: '',
 	projectId: null,
-	dueDateStr: '',
-	startDateStr: '',
-	endDateStr: '',
+	dueDate: null,
+	startDate: null,
+	endDate: null,
 })
 
 // Assignee selection state
@@ -274,12 +272,6 @@ const currentDateRange = ref<{start: Date, end: Date} | null>(null)
 
 // Generation counter for cancelling stale loadTasks responses
 let loadGeneration = 0
-
-// Convert date to datetime-local string (local time)
-function toDatetimeLocal(date: Date): string {
-	const pad = (n: number) => String(n).padStart(2, '0')
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
 
 // Format date as RFC 3339 without milliseconds (Go's time.RFC3339 format)
 function toRFC3339(date: Date): string {
@@ -448,9 +440,9 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 		title: '',
 		description: '',
 		projectId: projects.value[0]?.id ?? null,
-		dueDateStr: toDatetimeLocal(selectInfo.start),
-		startDateStr: toDatetimeLocal(selectInfo.start),
-		endDateStr: toDatetimeLocal(selectInfo.end),
+		dueDate: new Date(selectInfo.start),
+		startDate: new Date(selectInfo.start),
+		endDate: new Date(selectInfo.end),
 	}
 	selectedAssignees.value = []
 	foundUsers.value = []
@@ -475,9 +467,9 @@ async function createTask() {
 			title: newTask.value.title,
 			description: newTask.value.description,
 			projectId: newTask.value.projectId,
-			dueDate: newTask.value.dueDateStr ? new Date(newTask.value.dueDateStr).toISOString() : null,
-			startDate: newTask.value.startDateStr ? new Date(newTask.value.startDateStr).toISOString() : null,
-			endDate: newTask.value.endDateStr ? new Date(newTask.value.endDateStr).toISOString() : null,
+			dueDate: newTask.value.dueDate ? newTask.value.dueDate.toISOString() : null,
+			startDate: newTask.value.startDate ? newTask.value.startDate.toISOString() : null,
+			endDate: newTask.value.endDate ? newTask.value.endDate.toISOString() : null,
 			assignees: selectedAssignees.value,
 		})
 
@@ -591,11 +583,6 @@ onMounted(async () => {
 :deep(.modal-card){
 	    max-height: calc(80vh - var(--modal-card-spacing));
 }
-:deep(.input::-webkit-calendar-picker-indicator){
-	filter: invert(var(--filter));
-}
-
-
 
 :deep(.fc-button) {
 	background-color: var(--primary) !important;
