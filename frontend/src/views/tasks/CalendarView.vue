@@ -624,8 +624,12 @@ onMounted(async () => {
 	    max-height: calc(80vh - var(--modal-card-spacing));
 }
 
+:deep(.modal-card-body) {
+	position: relative;
+}
+
 :deep(.modal-card-body .datepicker-popup) {
-	position: fixed;
+	position: absolute;
 	top: 50%;
 	left: 50%;
 	transform: translate(-50%, -50%);
