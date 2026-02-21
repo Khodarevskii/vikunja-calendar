@@ -95,6 +95,39 @@
 							</div>
 						</div>
 					</div>
+					<div
+						v-if="newTask.projectId"
+						class="field"
+					>
+						<label class="label">{{ $t('task.attributes.assignees') }}</label>
+						<Multiselect
+							v-model="selectedAssignees"
+							:loading="assigneeSearchLoading"
+							:placeholder="$t('task.assignee.placeholder')"
+							:multiple="true"
+							:search-results="foundUsers"
+							label="name"
+							:select-placeholder="$t('task.assignee.selectPlaceholder')"
+							:autocomplete-enabled="false"
+							@search="findUser"
+							@select="selectAssignee"
+						>
+							<template #items="{items}">
+								<AssigneeList
+									:assignees="items"
+									can-remove
+									@remove="removeAssignee"
+								/>
+							</template>
+							<template #searchResult="{option: user}">
+								<User
+									:avatar-size="24"
+									:show-username="true"
+									:user="user"
+								/>
+							</template>
+						</Multiselect>
+					</div>
 				</section>
 				<footer class="modal-card-foot">
 					<XButton
@@ -117,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import {ref, computed, onMounted} from 'vue'
+import {ref, computed, watch, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
 import {useI18n} from 'vue-i18n'
 import {setTitle} from '@/helpers/setTitle'
@@ -133,9 +166,16 @@ import ruLocale from '@fullcalendar/core/locales/ru'
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
+import type {IUser} from '@/modelTypes/IUser'
 import {useProjectStore} from '@/stores/projects'
 import {useAuthStore} from '@/stores/auth'
 import XButton from '@/components/input/Button.vue'
+import Multiselect from '@/components/input/Multiselect.vue'
+import User from '@/components/misc/User.vue'
+import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
+import ProjectUserService from '@/services/projectUsers'
+import {includesById} from '@/helpers/utils'
+import {getDisplayName} from '@/models/user'
 
 const {t} = useI18n()
 const router = useRouter()
@@ -174,6 +214,47 @@ const newTask = ref<NewTaskForm>({
 	startDateStr: '',
 	endDateStr: '',
 })
+
+// Assignee selection state
+const selectedAssignees = ref<IUser[]>([])
+const foundUsers = ref<IUser[]>([])
+const assigneeSearchLoading = ref(false)
+const projectUserService = new ProjectUserService()
+
+// Clear selected assignees when project changes
+watch(() => newTask.value.projectId, () => {
+	selectedAssignees.value = []
+	foundUsers.value = []
+})
+
+async function findUser(query: string) {
+	if (!newTask.value.projectId) return
+
+	assigneeSearchLoading.value = true
+	try {
+		const response = await projectUserService.getAll(
+			{projectId: newTask.value.projectId},
+			{s: query},
+		) as IUser[]
+
+		foundUsers.value = response
+			.filter(({id}) => !includesById(selectedAssignees.value, id))
+			.map(u => {
+				u.name = getDisplayName(u)
+				return u
+			})
+	} finally {
+		assigneeSearchLoading.value = false
+	}
+}
+
+function selectAssignee(user: IUser) {
+	selectedAssignees.value.push(user)
+}
+
+function removeAssignee(user: IUser) {
+	selectedAssignees.value = selectedAssignees.value.filter(a => a.id !== user.id)
+}
 
 // Current visible date range
 const currentDateRange = ref<{start: Date, end: Date} | null>(null)
@@ -357,6 +438,8 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 		startDateStr: toDatetimeLocal(selectInfo.start),
 		endDateStr: toDatetimeLocal(selectInfo.end),
 	}
+	selectedAssignees.value = []
+	foundUsers.value = []
 	showCreateModal.value = true
 }
 
@@ -380,6 +463,7 @@ async function createTask() {
 			dueDate: newTask.value.dueDateStr ? new Date(newTask.value.dueDateStr).toISOString() : null,
 			startDate: newTask.value.startDateStr ? new Date(newTask.value.startDateStr).toISOString() : null,
 			endDate: newTask.value.endDateStr ? new Date(newTask.value.endDateStr).toISOString() : null,
+			assignees: selectedAssignees.value,
 		})
 
 		const created = await taskService.create(task)
