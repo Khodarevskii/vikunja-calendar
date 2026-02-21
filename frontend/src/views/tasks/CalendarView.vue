@@ -134,11 +134,13 @@ import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 import {useProjectStore} from '@/stores/projects'
+import {useAuthStore} from '@/stores/auth'
 import XButton from '@/components/input/Button.vue'
 
 const {t} = useI18n()
 const router = useRouter()
 const projectStore = useProjectStore()
+const authStore = useAuthStore()
 
 setTitle(t('navigation.calendar'))
 
@@ -176,10 +178,18 @@ const newTask = ref<NewTaskForm>({
 // Current visible date range
 const currentDateRange = ref<{start: Date, end: Date} | null>(null)
 
+// Generation counter for cancelling stale loadTasks responses
+let loadGeneration = 0
+
 // Convert date to datetime-local string (local time)
 function toDatetimeLocal(date: Date): string {
 	const pad = (n: number) => String(n).padStart(2, '0')
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// Format date as RFC 3339 without milliseconds (Go's time.RFC3339 format)
+function toRFC3339(date: Date): string {
+	return date.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
 // Returns true if a Date falls exactly at midnight UTC (= Vikunja all-day marker)
@@ -260,7 +270,11 @@ async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> 
 	const results: ITask[] = []
 	let page = 1
 	do {
-		const tasks = await service.getAll({} as ITask, {...params, per_page: 500}, page)
+		const tasks = await service.getAll({} as ITask, {
+			...params,
+			filter_timezone: authStore.settings.timezone,
+			per_page: 500,
+		}, page)
 		results.push(...(tasks as ITask[]))
 		page++
 	} while (page <= service.totalPages)
@@ -269,11 +283,12 @@ async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> 
 
 // Load tasks for visible calendar range
 async function loadTasks(start: Date, end: Date) {
+	const generation = ++loadGeneration
 	loading.value = true
 
 	try {
-		const startIso = start.toISOString()
-		const endIso = end.toISOString()
+		const startIso = toRFC3339(start)
+		const endIso = toRFC3339(end)
 
 		// Three parallel queries:
 		// 1. Tasks whose due date falls in the visible range
@@ -293,6 +308,11 @@ async function loadTasks(start: Date, end: Date) {
 				filter_include_nulls: false,
 			}),
 		])
+
+		// Discard stale results if a newer loadTasks was triggered
+		if (generation !== loadGeneration) {
+			return
+		}
 
 		// Merge and deduplicate by task id
 		const taskMap = new Map<number, ITask>()
@@ -357,9 +377,9 @@ async function createTask() {
 		const task = new TaskModel({
 			title: newTask.value.title,
 			projectId: newTask.value.projectId,
-			dueDate: newTask.value.dueDateStr ? new Date(newTask.value.dueDateStr) : null,
-			startDate: newTask.value.startDateStr ? new Date(newTask.value.startDateStr) : null,
-			endDate: newTask.value.endDateStr ? new Date(newTask.value.endDateStr) : null,
+			dueDate: newTask.value.dueDateStr ? new Date(newTask.value.dueDateStr).toISOString() : null,
+			startDate: newTask.value.startDateStr ? new Date(newTask.value.startDateStr).toISOString() : null,
+			endDate: newTask.value.endDateStr ? new Date(newTask.value.endDateStr).toISOString() : null,
 		})
 
 		const created = await taskService.create(task)
