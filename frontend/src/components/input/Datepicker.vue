@@ -104,6 +104,8 @@ function hideDatePopup(e: MouseEvent) {
 	}
 }
 
+defineExpose({show})
+
 function close() {
 	// Kind of dirty, but the timeout allows us to enter a time and click on "confirm" without
 	// having to click on another input field before it is actually used.

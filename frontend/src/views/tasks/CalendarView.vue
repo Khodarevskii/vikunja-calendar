@@ -70,10 +70,14 @@
 							</div>
 						</div>
 					</div>
-					<div class="field">
+					<div
+						class="field"
+						@click.capture="closeDatepickersExcept('dueDate')"
+					>
 						<label class="label">{{ $t('task.attributes.dueDate') }}</label>
 						<div class="control">
 							<Datepicker
+								ref="dueDatePicker"
 								v-model="newTask.dueDate"
 								:choose-date-label="$t('task.detail.chooseDueDate')"
 							/>
@@ -81,10 +85,14 @@
 					</div>
 					<div class="columns">
 						<div class="column">
-							<div class="field">
+							<div
+								class="field"
+								@click.capture="closeDatepickersExcept('startDate')"
+							>
 								<label class="label">{{ $t('task.attributes.startDate') }}</label>
 								<div class="control">
 									<Datepicker
+										ref="startDatePicker"
 										v-model="newTask.startDate"
 										:choose-date-label="$t('task.detail.chooseStartDate')"
 									/>
@@ -92,10 +100,14 @@
 							</div>
 						</div>
 						<div class="column">
-							<div class="field">
+							<div
+								class="field"
+								@click.capture="closeDatepickersExcept('endDate')"
+							>
 								<label class="label">{{ $t('task.attributes.endDate') }}</label>
 								<div class="control">
 									<Datepicker
+										ref="endDatePicker"
 										v-model="newTask.endDate"
 										:choose-date-label="$t('task.detail.chooseEndDate')"
 									/>
@@ -207,6 +219,25 @@ const projects = computed(() =>
 // Create task modal state
 const showCreateModal = ref(false)
 const creating = ref(false)
+
+// Datepicker refs for coordinating open/close
+const dueDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
+const startDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
+const endDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
+
+const datepickerRefs = {
+	dueDate: dueDatePicker,
+	startDate: startDatePicker,
+	endDate: endDatePicker,
+} as const
+
+function closeDatepickersExcept(except: string) {
+	for (const [key, pickerRef] of Object.entries(datepickerRefs)) {
+		if (key !== except && pickerRef.value?.show) {
+			pickerRef.value.show = false
+		}
+	}
+}
 
 interface NewTaskForm {
 	title: string
