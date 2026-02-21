@@ -588,6 +588,9 @@ onMounted(async () => {
 	background-color: var(--modal-color) !important;
 	border-color: var(--border) !important;
 }
+:deep(.modal-card){
+	    max-height: calc(80vh - var(--modal-card-spacing));
+}
 :deep(.input::-webkit-calendar-picker-indicator){
 	filter: invert(var(--filter));
 }
