@@ -630,9 +630,9 @@ onMounted(async () => {
 
 :deep(.modal-card-body .datepicker-popup) {
 	position: absolute;
-	top: 50%;
+	top: 0;
 	left: 50%;
-	transform: translate(-50%, -50%);
+	transform: translateX(-50%);
 	z-index: 100;
 }
 
