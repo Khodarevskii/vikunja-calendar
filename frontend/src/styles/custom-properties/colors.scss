@@ -256,17 +256,24 @@
   --card-border-color: var(--grey-200);
   --logo-text-color: hsl(180, 1%, 15%);
 
+
+  --border: black;
+  --modal-color:white;
+
   // Code colors
   --code-variable: #da2222;
   --code-literal: #fd8a09;
   --code-symbol: #0ead69;
   --code-section: #3a86ff;
   --code-keyword: #8338ec;
-
+  --filter: 0 ;
   &.dark {
     @media screen {
       // Light mode colours reversed for dark mode
       --grey-900-hsl: 210, 20%, 98%;
+      --filter: 100% ;
+      --border:#3273dc;
+      --modal-color:#3273dc;
       --grey-900: hsl(var(--grey-900-hsl));
       --grey-800: hsl(220, 14.3%, 95.9%);
       --grey-700: hsl(220, 13%, 91%);

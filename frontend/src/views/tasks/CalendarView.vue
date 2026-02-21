@@ -533,11 +533,51 @@ onMounted(async () => {
 	box-shadow: var(--shadow);
 }
 
+
 /* FullCalendar customization */
 :deep(.fc-event-done) {
 	opacity: 0.6;
 	text-decoration: line-through;
 }
+
+:deep(.fc-scrollgrid-sync-inner){
+	background: var(--white);
+	
+}
+::v-deep(.fc-theme-standard td, .fc-theme-standard th){
+	border:1px solid var(--border) !important;
+}
+
+::v-deep(.fc-col-header-cell.fc-day){
+	border:1px solid var(--border) !important;
+}
+
+:deep(.fc-theme-standard .fc-scrollgrid){
+	border:1px solid var(--border);
+}
+:deep(.fc .fc-daygrid-day-number){
+	color: var(--border)
+}
+:deep(.fc .fc-col-header-cell-cushion){
+	color: var(--border)
+}
+:deep(.fc .fc-scrollgrid-section-sticky > *){
+	background: none;
+	border-right:1px solid var(--border) !important;
+}
+:deep(.modal-card-head){
+	background-color: var(--modal-color) !important;
+	border-color: var(--border) !important;
+}
+:deep(.modal-card-foot){
+	background-color: var(--modal-color) !important;
+	border-color: var(--border) !important;
+}
+:deep(.input::-webkit-calendar-picker-indicator){
+	filter: invert(var(--filter));
+}
+
+
 
 :deep(.fc-button) {
 	background-color: var(--primary) !important;
