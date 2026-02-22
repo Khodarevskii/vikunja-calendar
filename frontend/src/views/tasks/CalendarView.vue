@@ -453,13 +453,23 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	// Start date = current local time
 	const now = new Date()
 
+	// End date at 9:00 AM:
+	// - single day selected → next day
+	// - range selected → last selected day
+	const isSingleDay = (selectInfo.end.getTime() - selectInfo.start.getTime()) <= 24 * 60 * 60 * 1000
+	const endDate = new Date(selectInfo.end)
+	if (!isSingleDay) {
+		endDate.setDate(endDate.getDate() - 1)
+	}
+	endDate.setHours(9, 0, 0, 0)
+
 	newTask.value = {
 		title: '',
 		description: '',
 		projectId: projects.value[0]?.id ?? null,
 		dueDate: null,
 		startDate: now,
-		endDate: null,
+		endDate,
 	}
 	selectedAssignees.value = []
 	foundUsers.value = []
