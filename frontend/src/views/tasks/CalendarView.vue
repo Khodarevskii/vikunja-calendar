@@ -298,11 +298,6 @@ function removeAssignee(user: IUser) {
 	selectedAssignees.value = selectedAssignees.value.filter(a => a.id !== user.id)
 }
 
-// Current visible date range
-const currentDateRange = ref<{start: Date, end: Date} | null>(null)
-
-// Generation counter for cancelling stale loadTasks responses
-let loadGeneration = 0
 
 // Format date as RFC 3339 without milliseconds (Go's time.RFC3339 format)
 function toRFC3339(date: Date): string {
@@ -400,11 +395,9 @@ async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> 
 	return results
 }
 
-// Load tasks for visible calendar range
-async function loadTasks(start: Date, end: Date) {
-	const generation = ++loadGeneration
+// Load tasks for a given date range, returning FullCalendar events
+async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> {
 	loading.value = true
-
 	try {
 		const startIso = toRFC3339(start)
 		const endIso = toRFC3339(end)
@@ -428,11 +421,6 @@ async function loadTasks(start: Date, end: Date) {
 			}),
 		])
 
-		// Discard stale results if a newer loadTasks was triggered
-		if (generation !== loadGeneration) {
-			return
-		}
-
 		// Merge and deduplicate by task id
 		const taskMap = new Map<number, ITask>()
 		for (const task of [...dueTasks, ...startTasks, ...spanTasks]) {
@@ -441,28 +429,21 @@ async function loadTasks(start: Date, end: Date) {
 			}
 		}
 
-		// Render events in the calendar
-		const calApi = calendarRef.value?.getApi()
-		if (calApi) {
-			calApi.removeAllEvents()
-			for (const task of taskMap.values()) {
-				const event = taskToEvent(task)
-				if (event) {
-					calApi.addEvent(event)
-				}
+		const events: EventInput[] = []
+		for (const task of taskMap.values()) {
+			const event = taskToEvent(task)
+			if (event) {
+				events.push(event)
 			}
 		}
+
+		return events
 	} catch (e) {
 		console.error('Failed to load calendar tasks', e)
+		return []
 	} finally {
 		loading.value = false
 	}
-}
-
-// Handle date range change (navigating the calendar)
-function handleDatesSet(info: {start: Date, end: Date}) {
-	currentDateRange.value = {start: info.start, end: info.end}
-	loadTasks(info.start, info.end)
 }
 
 // Handle clicking on empty date slot → open create modal
@@ -506,13 +487,12 @@ async function createTask() {
 			assignees: selectedAssignees.value,
 		})
 
-		const created = await taskService.create(task)
+		await taskService.create(task)
 		closeCreateModal()
 
-		// Add the new task to the calendar
-		const event = taskToEvent(created)
-		if (event && calendarRef.value) {
-			calendarRef.value.getApi().addEvent(event)
+		// Refresh calendar to show the new task
+		if (calendarRef.value) {
+			calendarRef.value.getApi().refetchEvents()
 		}
 	} catch (e) {
 		console.error('Failed to create task', e)
@@ -543,8 +523,12 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	dayMaxEvents: true,
 	select: handleDateSelect,
 	eventClick: handleEventClick,
-	datesSet: handleDatesSet,
 	height: 'auto',
+	events(fetchInfo, successCallback, failureCallback) {
+		loadTasksForRange(fetchInfo.start, fetchInfo.end)
+			.then(events => successCallback(events))
+			.catch(e => failureCallback(e as Error))
+	},
 	async eventDidMount(info) {
 		// Add tooltip with task title
 		info.el.title = info.event.title
