@@ -450,13 +450,21 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 function handleDateSelect(selectInfo: DateSelectArg) {
 	if (projects.value.length === 0) return
 
+	// Start date = current local time
+	const now = new Date()
+
+	// Due date = 9:00 AM the next day after the selected date
+	const nextDay = new Date(selectInfo.start)
+	nextDay.setDate(nextDay.getDate() + 1)
+	nextDay.setHours(9, 0, 0, 0)
+
 	newTask.value = {
 		title: '',
 		description: '',
 		projectId: projects.value[0]?.id ?? null,
-		dueDate: new Date(selectInfo.start),
-		startDate: new Date(selectInfo.start),
-		endDate: new Date(selectInfo.end),
+		dueDate: nextDay,
+		startDate: now,
+		endDate: null,
 	}
 	selectedAssignees.value = []
 	foundUsers.value = []
