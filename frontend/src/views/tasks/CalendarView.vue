@@ -453,16 +453,11 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	// Start date = current local time
 	const now = new Date()
 
-	// Due date = 9:00 AM the next day after the selected date
-	const nextDay = new Date(selectInfo.start)
-	nextDay.setDate(nextDay.getDate() + 1)
-	nextDay.setHours(9, 0, 0, 0)
-
 	newTask.value = {
 		title: '',
 		description: '',
 		projectId: projects.value[0]?.id ?? null,
-		dueDate: nextDay,
+		dueDate: null,
 		startDate: now,
 		endDate: null,
 	}
