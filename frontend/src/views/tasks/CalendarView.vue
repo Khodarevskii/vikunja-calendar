@@ -4,6 +4,28 @@
 			{{ $t('navigation.calendar') }}
 		</h1>
 
+		<!-- Project selector -->
+		<div class="project-selector">
+			<div class="field has-addons">
+				<div
+					class="project-tab"
+					:class="{ 'is-active': selectedProjectId === null }"
+					@click="selectProject(null)"
+				>
+					{{ $t('navigation.allProjects') }}
+				</div>
+				<div
+					v-for="project in allProjects"
+					:key="project.id"
+					class="project-tab"
+					:class="{ 'is-active': selectedProjectId === project.id }"
+					@click="selectProject(project.id)"
+				>
+					{{ project.title }}
+				</div>
+			</div>
+		</div>
+
 		<div class="calendar-wrapper">
 			<FullCalendar
 				ref="calendarRef"
@@ -60,7 +82,7 @@
 							<div class="select is-fullwidth">
 								<select v-model="newTask.projectId">
 									<option
-										v-for="project in projects"
+										v-for="project in modalProjects"
 										:key="project.id"
 										:value="project.id"
 									>
@@ -213,16 +235,58 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 // Loading state
 const loading = ref(false)
 
-// Projects list for task creation
-const projects = computed(() =>
+// All non-archived projects
+const allProjects = computed(() =>
 	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
 )
 
-// Whether the current user can create tasks (link share users cannot)
+// Selected project tab: null = "All projects", number = specific project
+const selectedProjectId = ref<number | null>(null)
+
+// Map of project id → maxPermission (loaded on mount)
+const projectPermissions = ref<Map<number, number>>(new Map())
+
+// Projects where user has write access
+const writableProjects = computed(() =>
+	allProjects.value.filter(p => {
+		const perm = projectPermissions.value.get(p.id)
+		return perm !== undefined && perm > PERMISSIONS.READ
+	}),
+)
+
+// Projects shown in the modal's dropdown:
+// - "All projects" tab → all writable projects
+// - Specific project tab → only that project (if writable)
+const modalProjects = computed(() => {
+	if (selectedProjectId.value === null) {
+		return writableProjects.value
+	}
+	return writableProjects.value.filter(p => p.id === selectedProjectId.value)
+})
+
+// Whether the current user can create tasks in the currently selected context
 const canCreateTasks = computed(() => {
 	if (authStore.isLinkShareAuth) return false
-	return projects.value.length > 0
+	if (selectedProjectId.value === null) {
+		// "All projects" — allow only if ALL projects are writable
+		return allProjects.value.length > 0
+			&& allProjects.value.every(p => {
+				const perm = projectPermissions.value.get(p.id)
+				return perm !== undefined && perm > PERMISSIONS.READ
+			})
+	}
+	// Specific project — allow only if that project is writable
+	const perm = projectPermissions.value.get(selectedProjectId.value)
+	return perm !== undefined && perm > PERMISSIONS.READ
 })
+
+function selectProject(id: number | null) {
+	selectedProjectId.value = id
+	// Refresh calendar to re-fetch tasks for the new filter
+	if (calendarRef.value) {
+		calendarRef.value.getApi().refetchEvents()
+	}
+}
 
 // Create task modal state
 const showCreateModal = ref(false)
@@ -410,21 +474,26 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 		const startIso = toRFC3339(start)
 		const endIso = toRFC3339(end)
 
+		// Project filter: when a specific project is selected, add project_id condition
+		const projectFilter = selectedProjectId.value !== null
+			? ` && project_id = '${selectedProjectId.value}'`
+			: ''
+
 		// Three parallel queries:
 		// 1. Tasks whose due date falls in the visible range
 		// 2. Tasks whose start date falls in the visible range
 		// 3. Tasks that span the visible range (started before, end after range start)
 		const [dueTasks, startTasks, spanTasks] = await Promise.all([
 			fetchAllPages({
-				filter: `due_date >= '${startIso}' && due_date <= '${endIso}'`,
+				filter: `due_date >= '${startIso}' && due_date <= '${endIso}'${projectFilter}`,
 				filter_include_nulls: false,
 			}),
 			fetchAllPages({
-				filter: `start_date >= '${startIso}' && start_date <= '${endIso}'`,
+				filter: `start_date >= '${startIso}' && start_date <= '${endIso}'${projectFilter}`,
 				filter_include_nulls: false,
 			}),
 			fetchAllPages({
-				filter: `start_date <= '${startIso}' && end_date >= '${startIso}'`,
+				filter: `start_date <= '${startIso}' && end_date >= '${startIso}'${projectFilter}`,
 				filter_include_nulls: false,
 			}),
 		])
@@ -455,20 +524,17 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 }
 
 // Handle clicking on empty date slot → open create modal
-async function handleDateSelect(selectInfo: DateSelectArg) {
+function handleDateSelect(selectInfo: DateSelectArg) {
 	if (!canCreateTasks.value) return
 
-	const defaultProject = projects.value[0]
-	if (!defaultProject) return
-
-	// Check write permission for the project via single GET (returns x-max-permission header)
-	try {
-		const projectService = new ProjectService()
-		const loaded = await projectService.get({id: defaultProject.id})
-		if (loaded.maxPermission === null || loaded.maxPermission <= PERMISSIONS.READ) return
-	} catch {
-		return
+	// Determine default project for the modal
+	let defaultProjectId: number | null = null
+	if (selectedProjectId.value !== null) {
+		defaultProjectId = selectedProjectId.value
+	} else {
+		defaultProjectId = writableProjects.value[0]?.id ?? null
 	}
+	if (!defaultProjectId) return
 
 	// Start date = current local time
 	const now = new Date()
@@ -486,7 +552,7 @@ async function handleDateSelect(selectInfo: DateSelectArg) {
 	newTask.value = {
 		title: '',
 		description: '',
-		projectId: defaultProject.id,
+		projectId: defaultProjectId,
 		dueDate: null,
 		startDate: now,
 		endDate,
@@ -599,6 +665,21 @@ onMounted(async () => {
 	if (projectStore.projectsArray.length === 0) {
 		await projectStore.loadAllProjects()
 	}
+
+	// Load maxPermission for each project (getAll doesn't include it)
+	if (!authStore.isLinkShareAuth) {
+		const projectService = new ProjectService()
+		const results = await Promise.allSettled(
+			allProjects.value.map(p => projectService.get({id: p.id})),
+		)
+		const perms = new Map<number, number>()
+		for (const result of results) {
+			if (result.status === 'fulfilled' && result.value.maxPermission !== null) {
+				perms.set(result.value.id, result.value.maxPermission)
+			}
+		}
+		projectPermissions.value = perms
+	}
 })
 </script>
 
@@ -607,6 +688,39 @@ onMounted(async () => {
 	padding: 1.5rem;
 	max-width: 1400px;
 	margin: 0 auto;
+}
+
+.project-selector {
+	margin-bottom: 1rem;
+}
+
+.project-selector .field.has-addons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.project-tab {
+	padding: 0.5rem 1rem;
+	border-radius: 4px;
+	cursor: pointer;
+	background: var(--white);
+	border: 1px solid var(--border);
+	color: var(--text);
+	font-size: 0.9rem;
+	transition: all 0.2s ease;
+	user-select: none;
+}
+
+.project-tab:hover {
+	border-color: var(--primary);
+	color: var(--primary);
+}
+
+.project-tab.is-active {
+	background: var(--primary);
+	border-color: var(--primary);
+	color: #fff;
 }
 
 .calendar-wrapper {
