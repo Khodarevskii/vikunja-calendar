@@ -183,6 +183,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
 import ruLocale from '@fullcalendar/core/locales/ru'
 
+import {PERMISSIONS} from '@/constants/permissions'
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
@@ -211,10 +212,12 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 // Loading state
 const loading = ref(false)
 
-// Projects list for task creation
+// Projects list for task creation (only writable projects)
 const projects = computed(() =>
-	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
+	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0 && p.maxPermission !== null && p.maxPermission > PERMISSIONS.READ),
 )
+
+const canCreateTasks = computed(() => projects.value.length > 0)
 
 // Create task modal state
 const showCreateModal = ref(false)
@@ -448,7 +451,7 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 
 // Handle clicking on empty date slot → open create modal
 function handleDateSelect(selectInfo: DateSelectArg) {
-	if (projects.value.length === 0) return
+	if (!canCreateTasks.value) return
 
 	// Start date = current local time
 	const now = new Date()
@@ -529,8 +532,8 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	},
 	locale: ruLocale,
 	firstDay: 1,
-	selectable: true,
-	selectMirror: true,
+	selectable: canCreateTasks.value,
+	selectMirror: canCreateTasks.value,
 	editable: false,
 	nowIndicator: true,
 	dayMaxEvents: true,
