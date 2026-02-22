@@ -546,41 +546,31 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 		// Add tooltip with task title
 		info.el.title = info.event.title
 
-		// Show avatar for delegated tasks
-		const {createdBy, assignees} = info.event.extendedProps
-		const currentUserId = authStore.info?.id
-		if (!currentUserId || !assignees || assignees.length === 0) return
+		// Show all assignee avatars in a row at the top-right corner
+		const {assignees} = info.event.extendedProps
+		if (!assignees || assignees.length === 0) return
 
-		let avatarUser: IUser | null = null
-		const isCreator = createdBy?.id === currentUserId
-		const isAssignee = assignees.some((a: IUser) => a.id === currentUserId)
-
-		if (isCreator && !isAssignee) {
-			// Current user created the task — show first assignee's avatar
-			avatarUser = assignees[0]
-		} else if (isAssignee && !isCreator) {
-			// Current user is assigned — show creator's avatar
-			avatarUser = createdBy
-		} else if (isCreator && isAssignee && assignees.length > 1) {
-			// Creator assigned to themselves + others — show another assignee
-			avatarUser = assignees.find((a: IUser) => a.id !== currentUserId) || null
-		}
-
-		if (!avatarUser) return
-
-		const avatarUrl = await fetchAvatarBlobUrl(avatarUser, 20)
-		if (!avatarUrl) return
-
-		const img = document.createElement('img')
-		img.src = avatarUrl
-		img.alt = getDisplayName(avatarUser)
-		img.title = getDisplayName(avatarUser)
-		img.className = 'fc-event-avatar'
-
-		// Find the inner content container and append avatar
 		const inner = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
 		inner.style.position = 'relative'
-		inner.appendChild(img)
+
+		const container = document.createElement('div')
+		container.className = 'fc-event-avatars'
+
+		for (const user of assignees as IUser[]) {
+			const avatarUrl = await fetchAvatarBlobUrl(user, 20)
+			if (!avatarUrl) continue
+
+			const img = document.createElement('img')
+			img.src = avatarUrl
+			img.alt = getDisplayName(user)
+			img.title = getDisplayName(user)
+			img.className = 'fc-event-avatar'
+			container.appendChild(img)
+		}
+
+		if (container.children.length > 0) {
+			inner.appendChild(container)
+		}
 	},
 }))
 
@@ -713,21 +703,24 @@ onMounted(async () => {
 	border:none
 }
 
-:deep(.fc-event-main) {
-	padding-right: 24px;
+:deep(.fc-event-avatars) {
+	display: flex;
+	flex-direction: row;
+	gap: 5px;
+	position: absolute;
+	right: 2px;
+	top: 2px;
+	pointer-events: none;
 }
 
 :deep(.fc-event-avatar) {
 	width: 20px;
 	height: 20px;
 	border-radius: 50%;
-	position: absolute;
-	right: 2px;
-	top: 50%;
-	transform: translateY(-50%);
 	border: 1.5px solid rgba(255, 255, 255, 0.8);
 	pointer-events: none;
 	object-fit: cover;
+	flex-shrink: 0;
 }
 
 :deep(.fc-highlight) {
