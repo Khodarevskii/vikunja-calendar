@@ -214,18 +214,15 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 const loading = ref(false)
 
 // Projects list for task creation
-const allProjects = computed(() =>
+const projects = computed(() =>
 	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
 )
 
-// Set of project IDs with write permission (loaded at mount)
-const writableProjectIds = ref<Set<number>>(new Set())
-
-const projects = computed(() =>
-	allProjects.value.filter(p => writableProjectIds.value.has(p.id)),
-)
-
-const canCreateTasks = computed(() => projects.value.length > 0)
+// Whether the current user can create tasks (link share users cannot)
+const canCreateTasks = computed(() => {
+	if (authStore.isLinkShareAuth) return false
+	return projects.value.length > 0
+})
 
 // Create task modal state
 const showCreateModal = ref(false)
@@ -458,8 +455,20 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 }
 
 // Handle clicking on empty date slot → open create modal
-function handleDateSelect(selectInfo: DateSelectArg) {
+async function handleDateSelect(selectInfo: DateSelectArg) {
 	if (!canCreateTasks.value) return
+
+	const defaultProject = projects.value[0]
+	if (!defaultProject) return
+
+	// Check write permission for the project via single GET (returns x-max-permission header)
+	try {
+		const projectService = new ProjectService()
+		const loaded = await projectService.get({id: defaultProject.id})
+		if (loaded.maxPermission === null || loaded.maxPermission <= PERMISSIONS.READ) return
+	} catch {
+		return
+	}
 
 	// Start date = current local time
 	const now = new Date()
@@ -477,7 +486,7 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	newTask.value = {
 		title: '',
 		description: '',
-		projectId: projects.value[0]?.id ?? null,
+		projectId: defaultProject.id,
 		dueDate: null,
 		startDate: now,
 		endDate,
@@ -590,19 +599,6 @@ onMounted(async () => {
 	if (projectStore.projectsArray.length === 0) {
 		await projectStore.loadAllProjects()
 	}
-
-	// Load maxPermission for each project (getAll doesn't return it)
-	const projectService = new ProjectService()
-	const results = await Promise.allSettled(
-		allProjects.value.map(p => projectService.get({id: p.id})),
-	)
-	const writable = new Set<number>()
-	for (const result of results) {
-		if (result.status === 'fulfilled' && result.value.maxPermission !== null && result.value.maxPermission > PERMISSIONS.READ) {
-			writable.add(result.value.id)
-		}
-	}
-	writableProjectIds.value = writable
 })
 </script>
 
