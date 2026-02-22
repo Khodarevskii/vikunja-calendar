@@ -186,6 +186,7 @@ import ruLocale from '@fullcalendar/core/locales/ru'
 import {PERMISSIONS} from '@/constants/permissions'
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
+import ProjectService from '@/services/project'
 import type {ITask} from '@/modelTypes/ITask'
 import type {IUser} from '@/modelTypes/IUser'
 import {useProjectStore} from '@/stores/projects'
@@ -212,9 +213,16 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 // Loading state
 const loading = ref(false)
 
-// Projects list for task creation (only writable projects)
+// Projects list for task creation
+const allProjects = computed(() =>
+	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
+)
+
+// Set of project IDs with write permission (loaded at mount)
+const writableProjectIds = ref<Set<number>>(new Set())
+
 const projects = computed(() =>
-	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0 && p.maxPermission !== null && p.maxPermission > PERMISSIONS.READ),
+	allProjects.value.filter(p => writableProjectIds.value.has(p.id)),
 )
 
 const canCreateTasks = computed(() => projects.value.length > 0)
@@ -532,8 +540,8 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	},
 	locale: ruLocale,
 	firstDay: 1,
-	selectable: canCreateTasks.value,
-	selectMirror: canCreateTasks.value,
+	selectable: true,
+	selectMirror: true,
 	editable: false,
 	nowIndicator: true,
 	dayMaxEvents: true,
@@ -582,6 +590,19 @@ onMounted(async () => {
 	if (projectStore.projectsArray.length === 0) {
 		await projectStore.loadAllProjects()
 	}
+
+	// Load maxPermission for each project (getAll doesn't return it)
+	const projectService = new ProjectService()
+	const results = await Promise.allSettled(
+		allProjects.value.map(p => projectService.get({id: p.id})),
+	)
+	const writable = new Set<number>()
+	for (const result of results) {
+		if (result.status === 'fulfilled' && result.value.maxPermission !== null && result.value.maxPermission > PERMISSIONS.READ) {
+			writable.add(result.value.id)
+		}
+	}
+	writableProjectIds.value = writable
 })
 </script>
 
