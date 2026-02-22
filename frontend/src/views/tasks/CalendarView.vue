@@ -39,7 +39,7 @@
 			class="modal is-active"
 			@click.self="closeCreateModal"
 		>
-			<div class="modal-background" @click="closeCreateModal" />
+			<div class="modal-background" @click="closeCreateModal"></div>
 			<div class="modal-card">
 				<header class="modal-card-head">
 					<p class="modal-card-title">
@@ -49,7 +49,7 @@
 						class="delete"
 						aria-label="close"
 						@click="closeCreateModal"
-					/>
+					></button>
 				</header>
 				<section class="modal-card-body">
 					<div class="field">
@@ -73,7 +73,7 @@
 								class="textarea"
 								:placeholder="$t('task.attributes.description')"
 								rows="3"
-							/>
+							></textarea>
 						</div>
 					</div>
 					<div class="field">
