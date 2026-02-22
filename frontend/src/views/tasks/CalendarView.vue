@@ -4,7 +4,7 @@
 			{{ $t('navigation.calendar') }}
 		</h1>
 
-		<!-- Project selector -->
+		<!-- Выбор проекта -->
 		<div class="project-selector">
 			<div class="field has-addons">
 				<div
@@ -33,7 +33,7 @@
 			/>
 		</div>
 
-		<!-- Modal: Create Task -->
+		<!-- Модальное окно: создание задачи -->
 		<div
 			v-if="showCreateModal"
 			class="modal is-active"
@@ -229,24 +229,24 @@ const authStore = useAuthStore()
 
 setTitle(t('navigation.calendar'))
 
-// Calendar ref
+// Ссылка на компонент FullCalendar
 const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 
-// Loading state
+// Состояние загрузки
 const loading = ref(false)
 
-// All non-archived projects
+// Все неархивные проекты
 const allProjects = computed(() =>
 	projectStore.projectsArray.filter(p => !p.isArchived && p.id > 0),
 )
 
-// Selected project tab: null = "All projects", number = specific project
+// Выбранный проект: null — «Все проекты», число — конкретный проект
 const selectedProjectId = ref<number | null>(null)
 
-// Map of project id → maxPermission (loaded on mount)
+// Карта: id проекта → максимальное разрешение (загружается при монтировании)
 const projectPermissions = ref<Map<number, number>>(new Map())
 
-// Projects where user has write access
+// Проекты, в которых у пользователя есть права на запись
 const writableProjects = computed(() =>
 	allProjects.value.filter(p => {
 		const perm = projectPermissions.value.get(p.id)
@@ -254,9 +254,9 @@ const writableProjects = computed(() =>
 	}),
 )
 
-// Projects shown in the modal's dropdown:
-// - "All projects" tab → all writable projects
-// - Specific project tab → only that project (if writable)
+// Проекты, отображаемые в выпадающем списке модального окна:
+// — вкладка «Все проекты» → все проекты с правами на запись
+// — вкладка конкретного проекта → только этот проект (если есть права на запись)
 const modalProjects = computed(() => {
 	if (selectedProjectId.value === null) {
 		return writableProjects.value
@@ -264,35 +264,41 @@ const modalProjects = computed(() => {
 	return writableProjects.value.filter(p => p.id === selectedProjectId.value)
 })
 
-// Whether the current user can create tasks in the currently selected context
+// Может ли текущий пользователь создавать задачи в выбранном контексте
 const canCreateTasks = computed(() => {
-	if (authStore.isLinkShareAuth) return false
-	if (selectedProjectId.value === null) {
-		// "All projects" — allow only if ALL projects are writable
-		return allProjects.value.length > 0
-			&& allProjects.value.every(p => {
-				const perm = projectPermissions.value.get(p.id)
-				return perm !== undefined && perm > PERMISSIONS.READ
-			})
+	if (authStore.isLinkShareAuth) {
+		return false
 	}
-	// Specific project — allow only if that project is writable
+
+	if (selectedProjectId.value === null) {
+		// «Все проекты» — разрешаем только если ВСЕ проекты доступны для записи
+		if (allProjects.value.length === 0) {
+			return false
+		}
+		return allProjects.value.every(p => {
+			const perm = projectPermissions.value.get(p.id)
+			return perm !== undefined && perm > PERMISSIONS.READ
+		})
+	}
+
+	// Конкретный проект — разрешаем только если у этого проекта есть права на запись
 	const perm = projectPermissions.value.get(selectedProjectId.value)
 	return perm !== undefined && perm > PERMISSIONS.READ
 })
 
 function selectProject(id: number | null) {
 	selectedProjectId.value = id
-	// Refresh calendar to re-fetch tasks for the new filter
+	// Обновляем календарь для перезагрузки задач с новым фильтром
 	if (calendarRef.value) {
 		calendarRef.value.getApi().refetchEvents()
 	}
 }
 
-// Create task modal state
+// Состояние модального окна создания задачи
 const showCreateModal = ref(false)
 const creating = ref(false)
 
-// Datepicker refs for coordinating open/close
+// Ссылки на компоненты Datepicker для координации открытия/закрытия
 const dueDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
 const startDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
 const endDatePicker = ref<InstanceType<typeof Datepicker> | null>(null)
@@ -329,13 +335,13 @@ const newTask = ref<NewTaskForm>({
 	endDate: null,
 })
 
-// Assignee selection state
+// Состояние выбора исполнителей
 const selectedAssignees = ref<IUser[]>([])
 const foundUsers = ref<IUser[]>([])
 const assigneeSearchLoading = ref(false)
 const projectUserService = new ProjectUserService()
 
-// Clear selected assignees when project changes
+// Очищаем выбранных исполнителей при смене проекта
 watch(() => newTask.value.projectId, () => {
 	selectedAssignees.value = []
 	foundUsers.value = []
@@ -371,17 +377,17 @@ function removeAssignee(user: IUser) {
 }
 
 
-// Format date as RFC 3339 without milliseconds (Go's time.RFC3339 format)
+// Форматирование даты в RFC 3339 без миллисекунд (формат Go time.RFC3339)
 function toRFC3339(date: Date): string {
 	return date.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-// Returns true if a Date falls exactly at midnight UTC (= Vikunja all-day marker)
+// Проверяет, попадает ли дата ровно на полночь UTC (маркер «весь день» в Vikunja)
 function isMidnightUTC(d: Date): boolean {
 	return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0
 }
 
-// Convert task to FullCalendar event
+// Преобразование задачи в событие FullCalendar
 function taskToEvent(task: ITask): EventInput | null {
 	const hasStart = task.startDate && new Date(task.startDate).getTime() > 0
 	const hasEnd = task.endDate && new Date(task.endDate).getTime() > 0
@@ -399,12 +405,12 @@ function taskToEvent(task: ITask): EventInput | null {
 		start = new Date(task.startDate as Date)
 		if (hasEnd) {
 			end = new Date(task.endDate as Date)
-			// Both at midnight UTC → all-day range event
+			// Обе даты в полночь UTC → событие на весь день
 			if (isMidnightUTC(start) && isMidnightUTC(end)) {
 				allDay = true
 			}
 		} else {
-			// No end date: all-day if midnight UTC, otherwise 1-hour duration
+			// Нет даты окончания: весь день если полночь UTC, иначе длительность 1 час
 			if (isMidnightUTC(start)) {
 				allDay = true
 				end = new Date(start)
@@ -414,7 +420,7 @@ function taskToEvent(task: ITask): EventInput | null {
 			}
 		}
 	} else {
-		// Only dueDate
+		// Есть только дата выполнения (dueDate)
 		start = new Date(task.dueDate as Date)
 		if (isMidnightUTC(start)) {
 			allDay = true
@@ -425,11 +431,25 @@ function taskToEvent(task: ITask): EventInput | null {
 		}
 	}
 
-	const color = task.hexColor
-		? `#${task.hexColor.replace('#', '')}`
-		: task.done
-			? '#888888'
-			: undefined
+	// Определяем цвет события
+	let color: string | undefined
+	if (task.hexColor) {
+		color = `#${task.hexColor.replace('#', '')}`
+	} else if (task.done) {
+		color = '#888888'
+	}
+
+	// Определяем цвет текста
+	let textColor: string | undefined
+	if (color) {
+		textColor = '#ffffff'
+	}
+
+	// Определяем CSS-классы
+	let classNames: string[] = []
+	if (task.done) {
+		classNames = ['fc-event-done']
+	}
 
 	return {
 		id: String(task.id),
@@ -439,18 +459,18 @@ function taskToEvent(task: ITask): EventInput | null {
 		allDay,
 		backgroundColor: color,
 		borderColor: color,
-		textColor: color ? '#ffffff' : undefined,
+		textColor,
 		extendedProps: {
 			task,
 			done: task.done,
 			createdBy: task.createdBy,
 			assignees: task.assignees || [],
 		},
-		classNames: task.done ? ['fc-event-done'] : [],
+		classNames,
 	}
 }
 
-// Fetch all pages for a given filter query
+// Загрузка всех страниц для заданного фильтра
 async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> {
 	const service = new TaskService()
 	const results: ITask[] = []
@@ -467,22 +487,23 @@ async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> 
 	return results
 }
 
-// Load tasks for a given date range, returning FullCalendar events
+// Загрузка задач для указанного диапазона дат, возвращает события FullCalendar
 async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> {
 	loading.value = true
 	try {
 		const startIso = toRFC3339(start)
 		const endIso = toRFC3339(end)
 
-		// Project filter: when a specific project is selected, add project_id condition
-		const projectFilter = selectedProjectId.value !== null
-			? ` && project_id = '${selectedProjectId.value}'`
-			: ''
+		// Фильтр по проекту: если выбран конкретный проект, добавляем условие project_id
+		let projectFilter = ''
+		if (selectedProjectId.value !== null) {
+			projectFilter = ` && project_id = '${selectedProjectId.value}'`
+		}
 
-		// Three parallel queries:
-		// 1. Tasks whose due date falls in the visible range
-		// 2. Tasks whose start date falls in the visible range
-		// 3. Tasks that span the visible range (started before, end after range start)
+		// Три параллельных запроса:
+		// 1. Задачи, у которых дата выполнения попадает в видимый диапазон
+		// 2. Задачи, у которых дата начала попадает в видимый диапазон
+		// 3. Задачи, которые охватывают видимый диапазон (начались до, заканчиваются после)
 		const [dueTasks, startTasks, spanTasks] = await Promise.all([
 			fetchAllPages({
 				filter: `due_date >= '${startIso}' && due_date <= '${endIso}'${projectFilter}`,
@@ -498,7 +519,7 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 			}),
 		])
 
-		// Merge and deduplicate by task id
+		// Объединяем и убираем дубликаты по id задачи
 		const taskMap = new Map<number, ITask>()
 		for (const task of [...dueTasks, ...startTasks, ...spanTasks]) {
 			if (!taskMap.has(task.id)) {
@@ -516,32 +537,35 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 
 		return events
 	} catch (e) {
-		console.error('Failed to load calendar tasks', e)
+		console.error('Не удалось загрузить задачи для календаря', e)
 		return []
 	} finally {
 		loading.value = false
 	}
 }
 
-// Handle clicking on empty date slot → open create modal
+// Обработка клика по пустому слоту даты → открыть модалку создания задачи
 function handleDateSelect(selectInfo: DateSelectArg) {
 	if (!canCreateTasks.value) return
 
-	// Determine default project for the modal
+	// Определяем проект по умолчанию для модального окна
 	let defaultProjectId: number | null = null
 	if (selectedProjectId.value !== null) {
 		defaultProjectId = selectedProjectId.value
 	} else {
-		defaultProjectId = writableProjects.value[0]?.id ?? null
+		const firstWritable = writableProjects.value[0]
+		if (firstWritable) {
+			defaultProjectId = firstWritable.id
+		}
 	}
 	if (!defaultProjectId) return
 
-	// Start date = current local time
+	// Дата начала = текущее локальное время
 	const now = new Date()
 
-	// End date at 9:00 AM:
-	// - single day selected → next day
-	// - range selected → last selected day
+	// Дата окончания в 9:00 утра:
+	// — выбран один день → следующий день
+	// — выбран диапазон → последний выбранный день
 	const isSingleDay = (selectInfo.end.getTime() - selectInfo.start.getTime()) <= 24 * 60 * 60 * 1000
 	const endDate = new Date(selectInfo.end)
 	if (!isSingleDay) {
@@ -562,13 +586,13 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	showCreateModal.value = true
 }
 
-// Handle clicking on existing event → navigate to task detail
+// Обработка клика по существующему событию → переход к деталям задачи
 function handleEventClick(clickInfo: EventClickArg) {
 	const task = clickInfo.event.extendedProps.task as ITask
 	router.push({name: 'task.detail', params: {id: task.id}})
 }
 
-// Create a new task
+// Создание новой задачи
 async function createTask() {
 	if (!newTask.value.title || !newTask.value.projectId) return
 
@@ -576,25 +600,41 @@ async function createTask() {
 	const taskService = new TaskService()
 
 	try {
+		// Форматируем даты в ISO-строки
+		let dueDateStr: string | null = null
+		if (newTask.value.dueDate) {
+			dueDateStr = newTask.value.dueDate.toISOString()
+		}
+
+		let startDateStr: string | null = null
+		if (newTask.value.startDate) {
+			startDateStr = newTask.value.startDate.toISOString()
+		}
+
+		let endDateStr: string | null = null
+		if (newTask.value.endDate) {
+			endDateStr = newTask.value.endDate.toISOString()
+		}
+
 		const task = new TaskModel({
 			title: newTask.value.title,
 			description: newTask.value.description,
 			projectId: newTask.value.projectId,
-			dueDate: newTask.value.dueDate ? newTask.value.dueDate.toISOString() : null,
-			startDate: newTask.value.startDate ? newTask.value.startDate.toISOString() : null,
-			endDate: newTask.value.endDate ? newTask.value.endDate.toISOString() : null,
+			dueDate: dueDateStr,
+			startDate: startDateStr,
+			endDate: endDateStr,
 			assignees: selectedAssignees.value,
 		})
 
 		await taskService.create(task)
 		closeCreateModal()
 
-		// Refresh calendar to show the new task
+		// Обновляем календарь, чтобы отобразить новую задачу
 		if (calendarRef.value) {
 			calendarRef.value.getApi().refetchEvents()
 		}
 	} catch (e) {
-		console.error('Failed to create task', e)
+		console.error('Не удалось создать задачу', e)
 	} finally {
 		creating.value = false
 	}
@@ -604,7 +644,7 @@ function closeCreateModal() {
 	showCreateModal.value = false
 }
 
-// FullCalendar options
+// Настройки FullCalendar
 const calendarOptions = computed<CalendarOptions>(() => ({
 	plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin],
 	initialView: 'dayGridMonth',
@@ -629,10 +669,10 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 			.catch(e => failureCallback(e as Error))
 	},
 	async eventDidMount(info) {
-		// Add tooltip with task title
+		// Добавляем всплывающую подсказку с названием задачи
 		info.el.title = info.event.title
 
-		// Show all assignee avatars in a row at the top-right corner
+		// Отображаем аватарки всех исполнителей в ряд в правом верхнем углу
 		const {assignees} = info.event.extendedProps
 		if (!assignees || assignees.length === 0) return
 
@@ -661,12 +701,12 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 }))
 
 onMounted(async () => {
-	// Ensure projects are loaded
+	// Убеждаемся, что проекты загружены
 	if (projectStore.projectsArray.length === 0) {
 		await projectStore.loadAllProjects()
 	}
 
-	// Load maxPermission for each project (getAll doesn't include it)
+	// Загружаем максимальные права для каждого проекта (getAll их не возвращает)
 	if (!authStore.isLinkShareAuth) {
 		const projectService = new ProjectService()
 		const results = await Promise.allSettled(
@@ -731,7 +771,7 @@ onMounted(async () => {
 }
 
 
-/* FullCalendar customization */
+/* Кастомизация FullCalendar */
 :deep(.fc-event-done) {
 	opacity: 0.6;
 	text-decoration: line-through;
