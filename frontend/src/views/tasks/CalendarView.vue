@@ -37,9 +37,9 @@
 		<div
 			v-if="showCreateModal"
 			class="modal is-active"
-			@click.self="closeCreateModal"
+			@click.self="!creating && closeCreateModal()"
 		>
-			<div class="modal-background" @click="closeCreateModal"></div>
+			<div class="modal-background" @click="!creating && closeCreateModal()"></div>
 			<div class="modal-card">
 				<header class="modal-card-head">
 					<p class="modal-card-title">
@@ -48,6 +48,7 @@
 					<button
 						class="delete"
 						aria-label="close"
+						:disabled="creating"
 						@click="closeCreateModal"
 					></button>
 				</header>
@@ -181,6 +182,7 @@
 					</XButton>
 					<XButton
 						variant="secondary"
+						:disabled="creating"
 						@click="closeCreateModal"
 					>
 						{{ $t('misc.cancel') }}
