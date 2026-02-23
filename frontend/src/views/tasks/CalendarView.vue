@@ -561,7 +561,7 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	if (!defaultProjectId) return
 
 	// Дата начала = текущее локальное время
-	const now = new Date()
+
 
 	// Дата окончания в 9:00 утра:
 	// — выбран один день → следующий день
@@ -572,13 +572,13 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 		endDate.setDate(endDate.getDate() - 1)
 	}
 	endDate.setHours(9, 0, 0, 0)
-
+	selectInfo.start.setHours(9, 0, 0, 0)
 	newTask.value = {
 		title: '',
 		description: '',
 		projectId: defaultProjectId,
 		dueDate: null,
-		startDate: now,
+		startDate: selectInfo.start,
 		endDate,
 	}
 	selectedAssignees.value = []
@@ -626,9 +626,8 @@ async function createTask() {
 			assignees: selectedAssignees.value,
 		})
 		
-		closeCreateModal()
 		await taskService.create(task)
-		
+		closeCreateModal()
 
 		// Обновляем календарь, чтобы отобразить новую задачу
 		if (calendarRef.value) {
@@ -638,6 +637,10 @@ async function createTask() {
 		console.error('Не удалось создать задачу', e)
 	} finally {
 		creating.value = false
+		closeCreateModal()
+		if (calendarRef.value) {
+			calendarRef.value.getApi().refetchEvents()
+		}
 	}
 }
 
@@ -887,7 +890,9 @@ onMounted(async () => {
 	top: 2px;
 	pointer-events: none;
 }
-
+:deep(.modal-card-body .datepicker-popup){
+	z-index: 1000;
+}
 :deep(.fc-event-avatar) {
 	width: 20px;
 	height: 20px;
