@@ -92,6 +92,13 @@
 							</div>
 						</div>
 					</div>
+					<div class="field">
+					<label class="label">{{ $t('цвет задачи') }}</label>
+					<div class="control">
+						<ColorPicker v-model="newTask.hexColor" />
+					</div>
+				</div>
+
 					<div
 						class="field"
 						@click.capture="closeDatepickersExcept('dueDate')"
@@ -221,6 +228,7 @@ import ProjectUserService from '@/services/projectUsers'
 import {includesById} from '@/helpers/utils'
 import {getDisplayName, fetchAvatarBlobUrl} from '@/models/user'
 import Datepicker from '@/components/input/Datepicker.vue'
+import ColorPicker from '@/components/input/ColorPicker.vue'
 
 const {t} = useI18n()
 const router = useRouter()
@@ -324,6 +332,7 @@ interface NewTaskForm {
 	dueDate: Date | null
 	startDate: Date | null
 	endDate: Date | null
+	hexColor: string
 }
 
 const newTask = ref<NewTaskForm>({
@@ -333,7 +342,9 @@ const newTask = ref<NewTaskForm>({
 	dueDate: null,
 	startDate: null,
 	endDate: null,
+	hexColor: '',
 })
+
 
 // Состояние выбора исполнителей
 const selectedAssignees = ref<IUser[]>([])
@@ -560,31 +571,44 @@ function handleDateSelect(selectInfo: DateSelectArg) {
 	}
 	if (!defaultProjectId) return
 
-	// Дата начала = текущее локальное время
+	let startDate: Date
+	let endDate: Date
 
+	const viewType = selectInfo.view.type
 
-	// Дата окончания в 9:00 утра:
-	// — выбран один день → следующий день
-	// — выбран диапазон → последний выбранный день
-	const isSingleDay = (selectInfo.end.getTime() - selectInfo.start.getTime()) <= 24 * 60 * 60 * 1000
-	const endDate = new Date(selectInfo.end)
-	if (!isSingleDay) {
-		endDate.setDate(endDate.getDate() - 1)
+	if (viewType === 'timeGridWeek' || viewType === 'timeGridDay') {
+		// В представлениях «Неделя» и «День» FullCalendar передаёт
+		// точные временные метки выбранного диапазона — используем их как есть
+		startDate = new Date(selectInfo.start)
+		endDate = new Date(selectInfo.end)
+	} else {
+		// Представление «Месяц» (dayGridMonth) — прежняя логика:
+		// начало = текущее время, конец = 9:00 утра
+		startDate = selectInfo.start
+
+		const isSingleDay = (selectInfo.end.getTime() - selectInfo.start.getTime()) <= 24 * 60 * 60 * 1000
+		endDate = new Date(selectInfo.end)
+		if (!isSingleDay) {
+			endDate.setDate(endDate.getDate() - 1)
+		}
+		endDate.setHours(9, 0, 0, 0)
+		startDate.setHours(9, 0, 0, 0)
 	}
-	endDate.setHours(9, 0, 0, 0)
-	selectInfo.start.setHours(9, 0, 0, 0)
+
 	newTask.value = {
 		title: '',
 		description: '',
 		projectId: defaultProjectId,
 		dueDate: null,
-		startDate: selectInfo.start,
+		startDate,
 		endDate,
+		hexColor: '',
 	}
 	selectedAssignees.value = []
 	foundUsers.value = []
 	showCreateModal.value = true
 }
+
 
 // Обработка клика по существующему событию → переход к деталям задачи
 function handleEventClick(clickInfo: EventClickArg) {
@@ -623,8 +647,10 @@ async function createTask() {
 			dueDate: dueDateStr,
 			startDate: startDateStr,
 			endDate: endDateStr,
+			hexColor: newTask.value.hexColor,
 			assignees: selectedAssignees.value,
 		})
+
 		
 		await taskService.create(task)
 		closeCreateModal()
