@@ -625,9 +625,10 @@ async function createTask() {
 			endDate: endDateStr,
 			assignees: selectedAssignees.value,
 		})
-
-		await taskService.create(task)
+		
 		closeCreateModal()
+		await taskService.create(task)
+		
 
 		// Обновляем календарь, чтобы отобразить новую задачу
 		if (calendarRef.value) {
