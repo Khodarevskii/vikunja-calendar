@@ -379,6 +379,25 @@
 						/>
 					</div>
 
+					<!-- Task Decomposition -->
+					<div
+						v-if="activeFields.decompose"
+						class="content details"
+					>
+						<h3>
+							<span class="icon is-grey">
+								<Icon icon="project-diagram" />
+							</span>
+							{{ $t('task.decompose.heading') }}
+						</h3>
+						<TaskDecomposition
+							:ref="e => setFieldRef('decompose', e)"
+							:task-id="taskId"
+							:project-id="task.projectId"
+							@created="onSubtasksCreated"
+						/>
+					</div>
+
 					<!-- Move Task -->
 					<div
 						v-if="activeFields.moveProject"
@@ -510,6 +529,13 @@
 							@click="setRelatedTasksActive()"
 						>
 							{{ $t('task.detail.actions.relatedTasks') }}
+						</XButton>
+						<XButton
+							variant="secondary"
+							icon="project-diagram"
+							@click="setFieldActive('decompose')"
+						>
+							{{ $t('task.decompose.action') }}
 						</XButton>
 						<XButton
 							v-shortcut="'m'"
@@ -646,6 +672,7 @@ import ProjectSearch from '@/components/tasks/partials/ProjectSearch.vue'
 import PercentDoneSelect from '@/components/tasks/partials/PercentDoneSelect.vue'
 import PrioritySelect from '@/components/tasks/partials/PrioritySelect.vue'
 import RelatedTasks from '@/components/tasks/partials/RelatedTasks.vue'
+import TaskDecomposition from '@/components/tasks/partials/TaskDecomposition.vue'
 import Reminders from '@/components/tasks/partials/Reminders.vue'
 import RepeatAfter from '@/components/tasks/partials/RepeatAfter.vue'
 import TaskSubscription from '@/components/misc/Subscription.vue'
@@ -917,6 +944,7 @@ type FieldType =
 	| 'assignees'
 	| 'attachments'
 	| 'color'
+	| 'decompose'
 	| 'dueDate'
 	| 'endDate'
 	| 'labels'
@@ -932,6 +960,7 @@ const activeFields: { [type in FieldType]: boolean } = reactive({
 	assignees: false,
 	attachments: false,
 	color: false,
+	decompose: false,
 	dueDate: false,
 	endDate: false,
 	labels: false,
@@ -967,6 +996,7 @@ const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive(
 	assignees: null,
 	attachments: null,
 	color: null,
+	decompose: null,
 	dueDate: null,
 	endDate: null,
 	labels: null,
@@ -1117,6 +1147,15 @@ async function removeRepeatAfter() {
 	task.value.repeatAfter.amount = 0
 	task.value.repeatMode = TASK_REPEAT_MODES.REPEAT_MODE_DEFAULT
 	await saveTask()
+}
+
+async function onSubtasksCreated(createdTasks: ITask[]) {
+	// Reload the task to refresh the related tasks section
+	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
+	Object.assign(task.value, loaded)
+	setActiveFields()
+	// Ensure related tasks section is visible
+	activeFields.relatedTasks = true
 }
 
 function setRelatedTasksActive() {
