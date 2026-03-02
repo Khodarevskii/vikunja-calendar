@@ -1002,8 +1002,11 @@
     "decompose": {
       "action": "Decompose",
       "heading": "Task Decomposition",
-      "help": "Enter one subtask per line. All tasks will be created as subtasks of the current task.",
-      "placeholder": "Buy groceries\nClean the house\nWalk the dog",
+      "help": "Add subtasks with their weight percentage. The weight shows how much each subtask contributes to the overall task.",
+      "titlePlaceholder": "Subtask title…",
+      "addRow": "Add subtask",
+      "totalWeight": "Total weight",
+      "weightLabel": "Weight: {weight}%",
       "create": "Create Subtasks",
       "created": "Created {count} subtask(s).",
       "success": "Successfully created {count} subtask(s).",
