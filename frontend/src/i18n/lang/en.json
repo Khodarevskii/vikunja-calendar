@@ -999,6 +999,16 @@
         "copiedto": "Copied To | Copied To"
       }
     },
+    "decompose": {
+      "action": "Decompose",
+      "heading": "Task Decomposition",
+      "help": "Enter one subtask per line. All tasks will be created as subtasks of the current task.",
+      "placeholder": "Buy groceries\nClean the house\nWalk the dog",
+      "create": "Create Subtasks",
+      "created": "Created {count} subtask(s).",
+      "success": "Successfully created {count} subtask(s).",
+      "error": "An error occurred while creating subtasks."
+    },
     "reminder": {
       "before": "{amount} {unit} before {type}",
       "after": "{amount} {unit} after {type}",
