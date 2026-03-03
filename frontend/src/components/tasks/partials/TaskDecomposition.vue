@@ -8,9 +8,23 @@
 				v-for="(item, index) in subtasks"
 				:key="index"
 				class="subtask-row"
+				:class="{'is-existing': item.existingTaskId, 'is-done': item.done}"
 			>
 				<span class="row-number">{{ index + 1 }}.</span>
+				<span
+					v-if="item.existingTaskId"
+					class="subtask-title existing-title"
+					:class="{'is-strikethrough': item.done}"
+				>
+					<Icon
+						v-if="item.done"
+						icon="check"
+						class="done-icon"
+					/>
+					{{ item.title }}
+				</span>
 				<input
+					v-else
 					:ref="el => setInputRef(index, el)"
 					v-model="item.title"
 					type="text"
@@ -21,6 +35,7 @@
 				>
 				<div class="assignee-wrapper">
 					<Multiselect
+						v-if="!item.existingTaskId"
 						v-model="item.assignee"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
 						:loading="userSearchLoading"
@@ -39,9 +54,20 @@
 							/>
 						</template>
 					</Multiselect>
+					<span
+						v-else-if="item.assignee"
+						class="existing-assignee"
+					>
+						<User
+							:avatar-size="20"
+							:show-username="false"
+							:user="item.assignee"
+						/>
+					</span>
 				</div>
 				<div class="weight-wrapper">
 					<input
+						v-if="!item.existingTaskId"
 						v-model.number="item.weight"
 						type="number"
 						class="input subtask-weight"
@@ -50,16 +76,24 @@
 						:disabled="isCreating"
 						@keydown.enter.prevent="addRow(index)"
 					>
+					<span
+						v-else
+						class="subtask-weight existing-weight"
+					>{{ item.weight }}</span>
 					<span class="weight-sign">%</span>
 				</div>
 				<BaseButton
-					v-if="subtasks.length > 1"
+					v-if="subtasks.length > 1 && !item.existingTaskId"
 					class="remove-row"
 					:disabled="isCreating"
 					@click="removeRow(index)"
 				>
 					<Icon icon="times" />
 				</BaseButton>
+				<span
+					v-else-if="item.existingTaskId"
+					class="existing-marker"
+				/>
 			</div>
 		</div>
 		<div class="list-controls">
@@ -114,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import {ref, reactive, computed, shallowReactive, nextTick, type ComponentPublicInstance} from 'vue'
+import {ref, reactive, computed, shallowReactive, watch, nextTick, type ComponentPublicInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskService from '@/services/task'
@@ -138,11 +172,16 @@ interface SubtaskRow {
 	title: string
 	weight: number
 	assignee: IUser | null
+	existingTaskId?: number
+	done?: boolean
 }
+
+const WEIGHT_REGEX = /<!-- decompose-weight:(\d+) -->/
 
 const props = defineProps<{
 	taskId: ITask['id'],
 	projectId: ITask['projectId'],
+	existingSubtasks?: ITask[],
 }>()
 
 const emit = defineEmits<{
@@ -155,6 +194,38 @@ const taskStore = useTaskStore()
 const subtasks = reactive<SubtaskRow[]>([
 	{title: '', weight: 100, assignee: null},
 ])
+
+// Load existing subtasks into the form
+watch(
+	() => props.existingSubtasks,
+	(existing) => {
+		if (!existing || existing.length === 0) {
+			return
+		}
+
+		const rows: SubtaskRow[] = existing.map(sub => {
+			const weightMatch = WEIGHT_REGEX.exec(sub.description || '')
+			const weight = weightMatch ? parseInt(weightMatch[1], 10) : 0
+			const assignee = sub.assignees?.length > 0 ? sub.assignees[0] : null
+
+			return {
+				title: sub.title,
+				weight,
+				assignee,
+				existingTaskId: sub.id,
+				done: sub.done,
+			} as SubtaskRow
+		})
+
+		// Add an empty row for new subtasks
+		const usedWeight = rows.reduce((sum, r) => sum + r.weight, 0)
+		const remaining = Math.max(0, 100 - usedWeight)
+		rows.push({title: '', weight: remaining, assignee: null})
+
+		subtasks.splice(0, subtasks.length, ...rows)
+	},
+	{immediate: true},
+)
 
 const inputRefs = ref<Record<number, HTMLInputElement | null>>({})
 
@@ -184,7 +255,7 @@ const totalWeight = computed(() => {
 })
 
 const canCreate = computed(() => {
-	return subtasks.some(item => item.title.trim().length > 0) && totalWeight.value <= 100
+	return subtasks.some(item => item.title.trim().length > 0 && !item.existingTaskId) && totalWeight.value <= 100
 })
 
 function addRow(afterIndex: number) {
@@ -208,7 +279,7 @@ function focus() {
 defineExpose({focus})
 
 async function createSubtasks() {
-	const validSubtasks = subtasks.filter(item => item.title.trim().length > 0)
+	const validSubtasks = subtasks.filter(item => item.title.trim().length > 0 && !item.existingTaskId)
 
 	if (validSubtasks.length === 0 || isCreating.value || totalWeight.value > 100) {
 		return
@@ -290,6 +361,47 @@ async function createSubtasks() {
 	.subtask-title {
 		flex: 1;
 		min-inline-size: 0;
+	}
+
+	.existing-title {
+		font-size: 0.9rem;
+		color: var(--text);
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+
+		&.is-strikethrough {
+			text-decoration: line-through;
+			color: var(--grey-400);
+		}
+	}
+
+	.done-icon {
+		color: var(--success);
+		font-size: 0.8rem;
+	}
+
+	.is-existing {
+		opacity: 0.7;
+	}
+
+	.existing-assignee {
+		display: flex;
+		align-items: center;
+	}
+
+	.existing-weight {
+		display: inline-block;
+		inline-size: 4rem;
+		text-align: center;
+		font-size: 0.9rem;
+		color: var(--grey-500);
+	}
+
+	.existing-marker {
+		// Placeholder to keep alignment with rows that have a remove button
+		inline-size: 1.25rem;
+		flex-shrink: 0;
 	}
 
 	.assignee-wrapper {
