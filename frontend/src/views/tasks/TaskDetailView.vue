@@ -395,6 +395,7 @@
 							:ref="e => setFieldRef('decompose', e)"
 							:task-id="taskId"
 							:project-id="task.projectId"
+							:existing-subtasks="task.relatedTasks?.subtask || []"
 							@created="onSubtasksCreated"
 						/>
 					</div>
@@ -1209,9 +1210,20 @@ async function onSubtasksCreated(createdTasks: ITask[]) {
 	// Reload the task to refresh the related tasks section
 	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
 	Object.assign(task.value, loaded)
+
+	// Auto-set percentDone to 0 so the progress bar appears
+	if (task.value.percentDone === 0 || !activeFields.percentDone) {
+		await saveTask({
+			...task.value,
+			percentDone: 0,
+		})
+		activeFields.percentDone = true
+	}
+
 	setActiveFields()
-	// Ensure related tasks section is visible
+	// Ensure related tasks and percentDone sections are visible
 	activeFields.relatedTasks = true
+	activeFields.percentDone = true
 }
 
 function setRelatedTasksActive() {
