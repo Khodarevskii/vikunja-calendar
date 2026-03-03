@@ -261,6 +261,10 @@ async function createSubtasks() {
 </script>
 
 <style lang="scss" scoped>
+
+:deep(.hint-text){
+	display: none!important;
+}
 .task-decomposition {
 	.help-text {
 		color: var(--grey-500);
