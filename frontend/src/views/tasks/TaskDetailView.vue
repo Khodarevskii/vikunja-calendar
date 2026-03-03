@@ -376,6 +376,7 @@
 							:project-id="task.projectId"
 							:show-no-relations-notice="true"
 							:task-id="taskId"
+							@subtask-done-toggled="recalcPercentDone"
 						/>
 					</div>
 
@@ -1147,6 +1148,61 @@ async function removeRepeatAfter() {
 	task.value.repeatAfter.amount = 0
 	task.value.repeatMode = TASK_REPEAT_MODES.REPEAT_MODE_DEFAULT
 	await saveTask()
+}
+
+const WEIGHT_REGEX = /<!-- decompose-weight:(\d+) -->/
+
+function parseDecomposeWeight(description: string): number | null {
+	const match = WEIGHT_REGEX.exec(description)
+	return match ? parseInt(match[1], 10) : null
+}
+
+async function recalcPercentDone() {
+	const subtasks = task.value.relatedTasks?.subtask
+	if (!subtasks || subtasks.length === 0) {
+		return
+	}
+
+	// Reload subtasks to get fresh done status and descriptions
+	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
+	Object.assign(task.value, loaded)
+	setActiveFields()
+
+	const freshSubtasks = task.value.relatedTasks?.subtask
+	if (!freshSubtasks || freshSubtasks.length === 0) {
+		return
+	}
+
+	let totalWeight = 0
+	let doneWeight = 0
+	let hasWeights = false
+
+	for (const sub of freshSubtasks) {
+		const weight = parseDecomposeWeight(sub.description || '')
+		if (weight !== null) {
+			hasWeights = true
+			totalWeight += weight
+			if (sub.done) {
+				doneWeight += weight
+			}
+		}
+	}
+
+	if (!hasWeights || totalWeight === 0) {
+		// Fallback: equal weight for each subtask
+		totalWeight = freshSubtasks.length
+		doneWeight = freshSubtasks.filter(s => s.done).length
+	}
+
+	// percentDone is 0-1 in Vikunja (0.5 = 50%), rounded to nearest 0.1
+	const newPercent = Math.round((doneWeight / totalWeight) * 10) / 10
+
+	if (newPercent !== task.value.percentDone) {
+		await saveTask({
+			...task.value,
+			percentDone: newPercent,
+		})
+	}
 }
 
 async function onSubtasksCreated(createdTasks: ITask[]) {

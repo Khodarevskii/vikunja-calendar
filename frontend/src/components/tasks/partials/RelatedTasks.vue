@@ -218,6 +218,10 @@ const props = withDefaults(defineProps<{
 	showNoRelationsNotice: false,
 })
 
+const emit = defineEmits<{
+	'subtaskDoneToggled': [task: ITask],
+}>()
+
 const taskStore = useTaskStore()
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
@@ -369,11 +373,11 @@ async function createAndRelateTask(title: string) {
 
 async function toggleTaskDone(task: ITask) {
 	await taskStore.update(task)
-	
+
 	if (task.done) {
 		playPopSound()
 	}
-	
+
 	// Find the task in the project and update it so that it is correctly strike through
 	Object.entries(relatedTasks.value).some(([kind, tasks]) => {
 		return (tasks as ITask[]).some((t, key) => {
@@ -385,6 +389,7 @@ async function toggleTaskDone(task: ITask) {
 		})
 	})
 
+	emit('subtaskDoneToggled', task)
 	success({message: t('task.detail.updateSuccess')})
 }
 </script>
