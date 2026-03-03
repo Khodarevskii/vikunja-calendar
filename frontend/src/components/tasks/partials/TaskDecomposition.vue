@@ -19,6 +19,27 @@
 					:disabled="isCreating"
 					@keydown.enter.prevent="addRow(index)"
 				>
+				<div class="assignee-wrapper">
+					<Multiselect
+						v-model="item.assignee"
+						:placeholder="$t('task.decompose.assigneePlaceholder')"
+						:loading="userSearchLoading"
+						:search-results="foundUsers"
+						label="name"
+						:multiple="false"
+						:disabled="isCreating"
+						@search="findUser"
+						@select="(user: IUser) => item.assignee = user"
+					>
+						<template #searchResult="{option: user}">
+							<User
+								:avatar-size="24"
+								:show-username="true"
+								:user="(user as IUser)"
+							/>
+						</template>
+					</Multiselect>
+				</div>
 				<div class="weight-wrapper">
 					<input
 						v-model.number="item.weight"
@@ -44,7 +65,7 @@
 		<div class="list-controls">
 			<BaseButton
 				class="add-row-button"
-				:disabled="isCreating"
+				:disabled="isCreating || totalWeight >= 100"
 				@click="addRow(subtasks.length - 1)"
 			>
 				<Icon icon="plus" />
@@ -52,9 +73,19 @@
 			</BaseButton>
 			<span
 				class="weight-total"
-				:class="{'is-valid': totalWeight === 100, 'is-warning': totalWeight !== 100}"
+				:class="{
+					'is-valid': totalWeight === 100,
+					'is-warning': totalWeight > 0 && totalWeight < 100,
+					'is-error': totalWeight > 100,
+				}"
 			>
 				{{ $t('task.decompose.totalWeight') }}: {{ totalWeight }}%
+				<span
+					v-if="totalWeight > 100"
+					class="weight-error-text"
+				>
+					({{ $t('task.decompose.weightExceeded') }})
+				</span>
 			</span>
 		</div>
 		<div class="actions">
@@ -83,23 +114,30 @@
 </template>
 
 <script setup lang="ts">
-import {ref, reactive, computed, nextTick, type ComponentPublicInstance} from 'vue'
+import {ref, reactive, computed, shallowReactive, nextTick, type ComponentPublicInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import TaskRelationService from '@/services/taskRelation'
 import TaskRelationModel from '@/models/taskRelation'
+import ProjectUserService from '@/services/projectUsers'
 import {RELATION_KIND} from '@/types/IRelationKind'
 
 import type {ITask} from '@/modelTypes/ITask'
+import type {IUser} from '@/modelTypes/IUser'
 
 import BaseButton from '@/components/base/BaseButton.vue'
+import Multiselect from '@/components/input/Multiselect.vue'
+import User from '@/components/misc/User.vue'
+import {getDisplayName} from '@/models/user'
 import {success} from '@/message'
+import {useTaskStore} from '@/stores/tasks'
 
 interface SubtaskRow {
 	title: string
 	weight: number
+	assignee: IUser | null
 }
 
 const props = defineProps<{
@@ -112,9 +150,10 @@ const emit = defineEmits<{
 }>()
 
 const {t} = useI18n({useScope: 'global'})
+const taskStore = useTaskStore()
 
 const subtasks = reactive<SubtaskRow[]>([
-	{title: '', weight: 100},
+	{title: '', weight: 100, assignee: null},
 ])
 
 const inputRefs = ref<Record<number, HTMLInputElement | null>>({})
@@ -127,18 +166,31 @@ const isCreating = ref(false)
 const createdCount = ref(0)
 const errorMessage = ref('')
 
+// User search
+const projectUserService = shallowReactive(new ProjectUserService())
+const userSearchLoading = computed(() => projectUserService.loading)
+const foundUsers = ref<IUser[]>([])
+
+async function findUser(query: string) {
+	const response = await projectUserService.getAll({projectId: props.projectId}, {s: query}) as IUser[]
+	foundUsers.value = response.map(u => {
+		u.name = getDisplayName(u)
+		return u
+	})
+}
+
 const totalWeight = computed(() => {
 	return subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
 })
 
 const canCreate = computed(() => {
-	return subtasks.some(item => item.title.trim().length > 0)
+	return subtasks.some(item => item.title.trim().length > 0) && totalWeight.value <= 100
 })
 
 function addRow(afterIndex: number) {
 	const currentTotal = subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
 	const remaining = Math.max(0, 100 - currentTotal)
-	subtasks.splice(afterIndex + 1, 0, {title: '', weight: remaining})
+	subtasks.splice(afterIndex + 1, 0, {title: '', weight: remaining, assignee: null})
 	nextTick(() => {
 		inputRefs.value[afterIndex + 1]?.focus()
 	})
@@ -158,7 +210,7 @@ defineExpose({focus})
 async function createSubtasks() {
 	const validSubtasks = subtasks.filter(item => item.title.trim().length > 0)
 
-	if (validSubtasks.length === 0 || isCreating.value) {
+	if (validSubtasks.length === 0 || isCreating.value || totalWeight.value > 100) {
 		return
 	}
 
@@ -172,7 +224,8 @@ async function createSubtasks() {
 
 	try {
 		for (const item of validSubtasks) {
-			const description = t('task.decompose.weightLabel', {weight: item.weight})
+			// Store weight as parseable marker + human-readable text
+			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
 
 			const newTask = await taskService.create(new TaskModel({
 				title: item.title.trim(),
@@ -186,11 +239,16 @@ async function createSubtasks() {
 				relationKind: RELATION_KIND.SUBTASK,
 			}))
 
+			// Assign user if selected
+			if (item.assignee) {
+				await taskStore.addAssignee({user: item.assignee, taskId: newTask.id})
+			}
+
 			createdTasks.push(newTask)
 		}
 
 		createdCount.value = createdTasks.length
-		subtasks.splice(0, subtasks.length, {title: '', weight: 100})
+		subtasks.splice(0, subtasks.length, {title: '', weight: 100, assignee: null})
 		emit('created', createdTasks)
 		success({message: t('task.decompose.success', {count: createdTasks.length})})
 	} catch (e) {
@@ -232,6 +290,22 @@ async function createSubtasks() {
 	.subtask-title {
 		flex: 1;
 		min-inline-size: 0;
+	}
+
+	.assignee-wrapper {
+		flex-shrink: 0;
+		inline-size: 10rem;
+
+		:deep(.multiselect) {
+			.input-wrapper {
+				min-block-size: auto;
+				padding: 0.2rem 0.4rem;
+			}
+
+			.input {
+				font-size: 0.85rem;
+			}
+		}
 	}
 
 	.weight-wrapper {
@@ -291,6 +365,11 @@ async function createSubtasks() {
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
+
+		&[disabled] {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
 	}
 
 	.weight-total {
@@ -304,6 +383,14 @@ async function createSubtasks() {
 		&.is-warning {
 			color: var(--warning);
 		}
+
+		&.is-error {
+			color: var(--danger);
+		}
+	}
+
+	.weight-error-text {
+		font-weight: 400;
 	}
 
 	.actions {
