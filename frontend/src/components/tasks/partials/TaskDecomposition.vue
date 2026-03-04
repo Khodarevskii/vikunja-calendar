@@ -38,19 +38,19 @@
 						@search="findUser"
 					>
 						<template #tag="{item: assignee}">
-							<span class="tag mis-2 mbs-2 assignee-tag">
+							<span class="assignee-chip">
 								<User
-									:avatar-size="18"
+									:avatar-size="24"
 									:show-username="false"
 									:user="(assignee as IUser)"
-									class="assignee-tag-user"
 								/>
-								<span class="assignee-tag-name">{{ assignee.name }}</span>
 								<BaseButton
 									v-if="!isCreating"
-									class="delete is-small"
+									class="remove-assignee"
 									@click="() => removeAssigneeFromRow(item, assignee as IUser)"
-								/>
+								>
+									<Icon icon="times" />
+								</BaseButton>
 							</span>
 						</template>
 						<template #searchResult="{option: user}">
@@ -520,24 +520,44 @@ async function createSubtasks() {
 		}
 	}
 
-	.assignee-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.2rem;
-		padding: 0.1rem 0.3rem;
-		font-size: 0.8rem;
+	.assignee-chip {
+		position: relative;
+		display: inline-block;
+		margin-inline-start: -0.25rem;
+
+		&:first-child {
+			margin-inline-start: 0;
+		}
+
+		:deep(.user img) {
+			border: 2px solid var(--white);
+			margin: 0;
+		}
+
+		:deep(.user .username) {
+			display: none;
+		}
 	}
 
-	.assignee-tag-name {
-		max-inline-size: 6rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.remove-assignee {
+		position: absolute;
+		inset-block-start: -2px;
+		inset-inline-start: -2px;
+		color: var(--danger);
+		background: var(--white);
+		display: block;
+		border-radius: 100%;
+		font-size: 0.6rem;
+		inline-size: 14px;
+		block-size: 14px;
+		z-index: 100;
+		line-height: 1;
+		opacity: 0;
+		transition: opacity $transition;
 	}
 
-	:deep(.assignee-tag-user) {
-		display: inline-flex;
-		align-items: center;
+	.assignee-chip:hover .remove-assignee {
+		opacity: 1;
 	}
 
 	.weight-wrapper {
