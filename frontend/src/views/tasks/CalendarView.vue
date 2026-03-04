@@ -738,19 +738,12 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 			.then(events => successCallback(events))
 			.catch(e => failureCallback(e as Error))
 	},
-	async eventDidMount(info) {
-		// Добавляем всплывающую подсказку с названием задачи
-		info.el.title = info.event.title
-
-		const inner = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
-		inner.style.position = 'relative'
-		inner.style.overflow = 'visible'
-
-		// Очищаем стандартный контент FullCalendar и рендерим свой
-		inner.innerHTML = ''
-
+	eventContent(info) {
 		const event = info.event
 		const {assignees, subtasks} = event.extendedProps
+
+		const wrapper = document.createElement('div')
+		wrapper.className = 'fc-custom-event'
 
 		// === Шапка события: время + название + аватарки ===
 		const header = document.createElement('div')
@@ -772,29 +765,30 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 		titleEl.textContent = event.title
 		header.appendChild(titleEl)
 
-		// Аватарки исполнителей родительской задачи
+		// Аватарки исполнителей родительской задачи (создаём img с фиксированным размером, src грузим async)
 		if (assignees && assignees.length > 0) {
 			const avatarContainer = document.createElement('span')
 			avatarContainer.className = 'fc-event-avatars'
 
 			for (const user of assignees as IUser[]) {
-				const avatarUrl = await fetchAvatarBlobUrl(user, 20)
-				if (!avatarUrl) continue
-
 				const img = document.createElement('img')
-				img.src = avatarUrl
+				img.className = 'fc-event-avatar'
 				img.alt = getDisplayName(user)
 				img.title = getDisplayName(user)
-				img.className = 'fc-event-avatar'
+				img.style.width = '18px'
+				img.style.height = '18px'
 				avatarContainer.appendChild(img)
+
+				// Загружаем src асинхронно — размер уже зарезервирован
+				fetchAvatarBlobUrl(user, 20).then(url => {
+					if (url) img.src = url
+				})
 			}
 
-			if (avatarContainer.children.length > 0) {
-				header.appendChild(avatarContainer)
-			}
+			header.appendChild(avatarContainer)
 		}
 
-		inner.appendChild(header)
+		wrapper.appendChild(header)
 
 		// === Подзадачи ===
 		if (subtasks && subtasks.length > 0) {
@@ -817,21 +811,23 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 				title.textContent = sub.title
 				row.appendChild(title)
 
-				// Аватарки назначенных на подзадачу (всегда видны, не обрезаются)
+				// Аватарки назначенных на подзадачу
 				if (sub.assignees && sub.assignees.length > 0) {
 					const subAvatars = document.createElement('span')
 					subAvatars.className = 'fc-subtask-assignees'
 
 					for (const user of sub.assignees as IUser[]) {
-						const avatarUrl = await fetchAvatarBlobUrl(user, 16)
-						if (!avatarUrl) continue
-
 						const img = document.createElement('img')
-						img.src = avatarUrl
+						img.className = 'fc-subtask-avatar'
 						img.alt = getDisplayName(user)
 						img.title = getDisplayName(user)
-						img.className = 'fc-subtask-avatar'
+						img.style.width = '16px'
+						img.style.height = '16px'
 						subAvatars.appendChild(img)
+
+						fetchAvatarBlobUrl(user, 16).then(url => {
+							if (url) img.src = url
+						})
 					}
 
 					row.appendChild(subAvatars)
@@ -840,8 +836,13 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 				subtaskList.appendChild(row)
 			}
 
-			inner.appendChild(subtaskList)
+			wrapper.appendChild(subtaskList)
 		}
+
+		return {domNodes: [wrapper]}
+	},
+	eventDidMount(info) {
+		info.el.title = info.event.title
 	},
 }))
 
@@ -1038,7 +1039,10 @@ onMounted(async () => {
 
 :deep(.fc-daygrid-block-event .fc-event-main) {
 	padding: 3px 5px;
-	overflow: visible;
+}
+
+:deep(.fc-custom-event) {
+	width: 100%;
 }
 
 /* === Шапка события: время + название + аватарки === */
