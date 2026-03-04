@@ -104,12 +104,7 @@
 			>
 				{{ $t('task.decompose.create') }}
 			</XButton>
-			<span
-				v-if="createdCount > 0"
-				class="created-notice has-text-success"
-			>
-				{{ $t('task.decompose.created', {count: createdCount}) }}
-			</span>
+
 			<span
 				v-if="errorMessage"
 				class="error-notice has-text-danger"
