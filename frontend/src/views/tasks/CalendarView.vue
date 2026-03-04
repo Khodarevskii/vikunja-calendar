@@ -1077,11 +1077,13 @@ onMounted(async () => {
 
 :deep(.fc-event-subtask-row) {
 	display: flex;
+	flex-wrap: nowrap;
 	align-items: center;
 	gap: 3px;
 	padding: 1px 2px;
 	font-size: 0.78em;
 	line-height: 1.4;
+	overflow: hidden;
 }
 
 :deep(.fc-subtask-checkbox) {
@@ -1108,11 +1110,13 @@ onMounted(async () => {
 	opacity: 0.6;
 }
 
-/* Аватарки подзадач — всегда видны, не обрезаются */
+/* Аватарки подзадач — всегда видны в той же строке, не обрезаются */
 :deep(.fc-subtask-assignees) {
-	display: flex;
+	display: inline-flex;
+	align-items: center;
 	gap: 2px;
 	flex-shrink: 0;
+	margin-left: auto;
 }
 
 :deep(.fc-subtask-avatar) {
