@@ -223,12 +223,22 @@ watch(
 			})
 		}
 
+		// Recalculate weight of empty new rows so total doesn't exceed 100
+		const usedWeight = subtasks
+			.filter(s => s.existingTaskId || s.title.trim() !== '')
+			.reduce((sum, r) => sum + r.weight, 0)
+		const remaining = Math.max(0, 100 - usedWeight)
+
 		// Ensure there's at least one empty row for adding new subtasks
 		const hasEmptyNew = subtasks.some(s => !s.existingTaskId && s.title === '')
 		if (!hasEmptyNew) {
-			const usedWeight = subtasks.reduce((sum, r) => sum + r.weight, 0)
-			const remaining = Math.max(0, 100 - usedWeight)
 			subtasks.push({title: '', weight: remaining, assignee: null})
+		} else {
+			for (const s of subtasks) {
+				if (!s.existingTaskId && s.title === '') {
+					s.weight = remaining
+				}
+			}
 		}
 	},
 	{immediate: true},
@@ -332,6 +342,20 @@ async function createSubtasks() {
 				description,
 				projectId: props.projectId,
 			}))
+
+			// Handle assignee changes for existing subtasks
+			const originalTask = props.existingSubtasks?.find(s => s.id === item.existingTaskId)
+			const originalAssigneeId = originalTask?.assignees?.length > 0 ? originalTask.assignees[0].id : null
+			const newAssigneeId = item.assignee?.id ?? null
+
+			if (newAssigneeId !== originalAssigneeId) {
+				if (originalAssigneeId && originalTask?.assignees?.[0]) {
+					await taskStore.removeAssignee({user: originalTask.assignees[0], taskId: item.existingTaskId!})
+				}
+				if (item.assignee) {
+					await taskStore.addAssignee({user: item.assignee, taskId: item.existingTaskId!})
+				}
+			}
 		}
 
 		// Create new subtasks
