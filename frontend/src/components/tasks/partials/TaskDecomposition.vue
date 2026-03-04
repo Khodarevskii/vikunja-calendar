@@ -165,6 +165,7 @@ const props = defineProps<{
 	taskId: ITask['id'],
 	projectId: ITask['projectId'],
 	existingSubtasks?: ITask[],
+	parentTask?: ITask,
 }>()
 
 const emit = defineEmits<{
@@ -409,7 +410,14 @@ async function createSubtasks() {
 			}
 		}
 
-		// Create new subtasks
+		// Create new subtasks – inherit dates from parent so they appear in the calendar
+		const parentDates: Partial<ITask> = {}
+		if (props.parentTask) {
+			if (props.parentTask.dueDate) parentDates.dueDate = props.parentTask.dueDate
+			if (props.parentTask.startDate) parentDates.startDate = props.parentTask.startDate
+			if (props.parentTask.endDate) parentDates.endDate = props.parentTask.endDate
+		}
+
 		for (const item of newSubtasks) {
 			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
 
@@ -417,6 +425,7 @@ async function createSubtasks() {
 				title: item.title.trim(),
 				description,
 				projectId: props.projectId,
+				...parentDates,
 			}))
 
 			await taskRelationService.create(new TaskRelationModel({

@@ -397,6 +397,7 @@
 							:task-id="taskId"
 							:project-id="task.projectId"
 							:existing-subtasks="task.relatedTasks?.subtask || []"
+							:parent-task="task"
 							@created="onSubtasksCreated"
 							@relation-removed="onDecompositionRelationRemoved"
 						/>
