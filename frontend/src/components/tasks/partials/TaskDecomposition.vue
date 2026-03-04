@@ -355,6 +355,8 @@ async function createSubtasks() {
 				await taskStore.addAssignee({user: item.assignee, taskId: newTask.id})
 			}
 
+			// Mark the row as existing so the watch won't duplicate it
+			item.existingTaskId = newTask.id
 			createdTasks.push(newTask)
 		}
 
