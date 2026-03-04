@@ -537,7 +537,11 @@ func addRelatedTasksToTasks(s *xorm.Session, taskIDs []int64, taskMap map[int64]
 		return err
 	}
 
-	// NOTE: while it certainly be possible to run this function on	fullRelatedTasks again, we don't do this for performance reasons.
+	// Load assignees for related tasks so they can be displayed in the frontend
+	err = addAssigneesToTasks(s, relatedTaskIDs, fullRelatedTasks)
+	if err != nil {
+		return err
+	}
 
 	// Go through all task relations and put them into the task objects
 	for _, rt := range relatedTasks {
