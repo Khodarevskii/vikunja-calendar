@@ -728,11 +728,37 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 
 		const inner = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
 		inner.style.position = 'relative'
+		inner.style.overflow = 'visible'
 
-		// Отображаем аватарки исполнителей родительской задачи
-		const {assignees, subtasks} = info.event.extendedProps
+		// Очищаем стандартный контент FullCalendar и рендерим свой
+		inner.innerHTML = ''
+
+		const event = info.event
+		const {assignees, subtasks} = event.extendedProps
+
+		// === Шапка события: время + название + аватарки ===
+		const header = document.createElement('div')
+		header.className = 'fc-custom-header'
+
+		// Время (всегда видно, не обрезается)
+		if (!event.allDay && event.start) {
+			const timeEl = document.createElement('span')
+			timeEl.className = 'fc-custom-time'
+			const h = event.start.getHours().toString().padStart(2, '0')
+			const m = event.start.getMinutes().toString().padStart(2, '0')
+			timeEl.textContent = `${h}:${m}`
+			header.appendChild(timeEl)
+		}
+
+		// Название задачи (обрезается)
+		const titleEl = document.createElement('span')
+		titleEl.className = 'fc-custom-title'
+		titleEl.textContent = event.title
+		header.appendChild(titleEl)
+
+		// Аватарки исполнителей родительской задачи
 		if (assignees && assignees.length > 0) {
-			const avatarContainer = document.createElement('div')
+			const avatarContainer = document.createElement('span')
 			avatarContainer.className = 'fc-event-avatars'
 
 			for (const user of assignees as IUser[]) {
@@ -748,11 +774,13 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 			}
 
 			if (avatarContainer.children.length > 0) {
-				inner.appendChild(avatarContainer)
+				header.appendChild(avatarContainer)
 			}
 		}
 
-		// Отображаем подзадачи списком под родительской задачей
+		inner.appendChild(header)
+
+		// === Подзадачи ===
 		if (subtasks && subtasks.length > 0) {
 			const subtaskList = document.createElement('div')
 			subtaskList.className = 'fc-event-subtasks'
@@ -761,19 +789,19 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 				const row = document.createElement('div')
 				row.className = 'fc-event-subtask-row'
 
-				// Чекбокс (выполнена ли подзадача)
+				// Чекбокс
 				const checkbox = document.createElement('span')
 				checkbox.className = 'fc-subtask-checkbox' + (sub.done ? ' is-done' : '')
 				checkbox.textContent = sub.done ? '✓' : '○'
 				row.appendChild(checkbox)
 
-				// Название подзадачи
+				// Название подзадачи (обрезается)
 				const title = document.createElement('span')
 				title.className = 'fc-subtask-title' + (sub.done ? ' is-done' : '')
 				title.textContent = sub.title
 				row.appendChild(title)
 
-				// Аватарки назначенных на подзадачу
+				// Аватарки назначенных на подзадачу (всегда видны, не обрезаются)
 				if (sub.assignees && sub.assignees.length > 0) {
 					const subAvatars = document.createElement('span')
 					subAvatars.className = 'fc-subtask-assignees'
@@ -978,21 +1006,61 @@ onMounted(async () => {
 	border:none
 }
 
-:deep(.fc-event-avatars) {
-	display: flex;
-	flex-direction: row;
-	gap: 5px;
-	position: absolute;
-	right: 2px;
-	top: 2px;
-	pointer-events: none;
-}
 :deep(.modal-card-body .datepicker-popup){
 	z-index: 1000;
 }
+
+:deep(.fc-highlight) {
+	background: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}
+
+/* Блочные события — фон + скругление */
+:deep(.fc-daygrid-event) {
+	border-radius: 4px;
+	min-height: 22px;
+}
+
+:deep(.fc-daygrid-block-event .fc-event-main) {
+	padding: 3px 5px;
+	overflow: visible;
+}
+
+/* === Шапка события: время + название + аватарки === */
+:deep(.fc-custom-header) {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+:deep(.fc-custom-time) {
+	flex-shrink: 0;
+	font-weight: 700;
+	font-size: 0.85em;
+	white-space: nowrap;
+}
+
+:deep(.fc-custom-title) {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+/* Аватарки исполнителей родительской задачи */
+:deep(.fc-event-avatars) {
+	display: flex;
+	flex-direction: row;
+	gap: 3px;
+	flex-shrink: 0;
+	pointer-events: none;
+}
+
 :deep(.fc-event-avatar) {
-	width: 20px;
-	height: 20px;
+	width: 18px;
+	height: 18px;
 	border-radius: 50%;
 	border: 1.5px solid rgba(255, 255, 255, 0.8);
 	pointer-events: none;
@@ -1000,25 +1068,20 @@ onMounted(async () => {
 	flex-shrink: 0;
 }
 
-:deep(.fc-highlight) {
-	background: color-mix(in srgb, var(--primary) 20%, transparent) !important;
-}
-
-/* Подзадачи внутри события */
+/* === Подзадачи внутри события === */
 :deep(.fc-event-subtasks) {
-	margin-top: 4px;
+	margin-top: 3px;
 	padding-top: 3px;
-	border-top: 1px solid rgba(255, 255, 255, 0.3);
+	border-top: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 :deep(.fc-event-subtask-row) {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	padding: 1px 4px;
-	font-size: 0.75em;
-	line-height: 1.3;
-	opacity: 0.92;
+	gap: 3px;
+	padding: 1px 2px;
+	font-size: 0.78em;
+	line-height: 1.4;
 }
 
 :deep(.fc-subtask-checkbox) {
@@ -1034,6 +1097,7 @@ onMounted(async () => {
 
 :deep(.fc-subtask-title) {
 	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1044,6 +1108,7 @@ onMounted(async () => {
 	opacity: 0.6;
 }
 
+/* Аватарки подзадач — всегда видны, не обрезаются */
 :deep(.fc-subtask-assignees) {
 	display: flex;
 	gap: 2px;
@@ -1056,16 +1121,7 @@ onMounted(async () => {
 	border-radius: 50%;
 	border: 1px solid rgba(255, 255, 255, 0.7);
 	object-fit: cover;
-}
-
-/* Блочные события всегда имеют фон */
-:deep(.fc-daygrid-event) {
-	border-radius: 4px;
-	min-height: 22px;
-}
-
-:deep(.fc-daygrid-block-event .fc-event-main) {
-	padding: 2px 4px;
+	flex-shrink: 0;
 }
 
 .textarea {
