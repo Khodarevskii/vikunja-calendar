@@ -555,6 +555,22 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 			}
 		}
 
+		// Дозагружаем полные данные подзадач (с assignees)
+		const taskService = new TaskService()
+		for (const [parentId, subtasks] of parentToSubtasks.entries()) {
+			const fullSubtasks = await Promise.all(
+				subtasks.map(sub => {
+					// Если подзадача уже загружена в taskMap — берём оттуда (там полные данные)
+					if (taskMap.has(sub.id)) {
+						return Promise.resolve(taskMap.get(sub.id)!)
+					}
+					// Иначе дозагружаем через API
+					return taskService.get({id: sub.id} as ITask) as Promise<ITask>
+				}),
+			)
+			parentToSubtasks.set(parentId, fullSubtasks)
+		}
+
 		const events: EventInput[] = []
 		for (const task of taskMap.values()) {
 			// Пропускаем подзадачи — они будут отображены под родительской задачей
