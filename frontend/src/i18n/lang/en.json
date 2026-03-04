@@ -1012,6 +1012,7 @@
       "create": "Create Subtasks",
       "created": "Created {count} subtask(s).",
       "success": "Successfully created {count} subtask(s).",
+      "updated": "Subtasks updated successfully.",
       "error": "An error occurred while creating subtasks."
     },
     "reminder": {
