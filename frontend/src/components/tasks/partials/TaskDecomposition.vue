@@ -37,6 +37,22 @@
 						:disabled="isCreating"
 						@search="findUser"
 					>
+						<template #tag="{item: assignee}">
+							<span class="tag mis-2 mbs-2 assignee-tag">
+								<User
+									:avatar-size="18"
+									:show-username="false"
+									:user="(assignee as IUser)"
+									class="assignee-tag-user"
+								/>
+								<span class="assignee-tag-name">{{ assignee.name }}</span>
+								<BaseButton
+									v-if="!isCreating"
+									class="delete is-small"
+									@click="() => removeAssigneeFromRow(item, assignee as IUser)"
+								/>
+							</span>
+						</template>
 						<template #searchResult="{option: user}">
 							<User
 								:avatar-size="24"
@@ -163,6 +179,24 @@ const subtasks = reactive<SubtaskRow[]>([
 	{title: '', weight: 100, assignees: []},
 ])
 
+// Fetch full task data for subtask rows missing assignees (fallback when API
+// does not include assignees in the related-tasks response).
+async function loadMissingAssignees() {
+	const taskService = new TaskService()
+	for (const row of subtasks) {
+		if (row.existingTaskId && row.assignees.length === 0) {
+			try {
+				const full = await taskService.get({id: row.existingTaskId})
+				if (full.assignees && full.assignees.length > 0) {
+					row.assignees = full.assignees.map((u: IUser) => ({...u, name: getDisplayName(u)}))
+				}
+			} catch {
+				// silently skip – assignees won't be pre-filled
+			}
+		}
+	}
+}
+
 // Load existing subtasks into the form and sync when Related Tasks changes
 watch(
 	() => props.existingSubtasks,
@@ -189,19 +223,29 @@ watch(
 			subtasks.filter(s => s.existingTaskId).map(s => s.existingTaskId),
 		)
 
+		let needsAssigneeLoad = false
+
 		for (const sub of existing) {
 			if (currentExistingIds.has(sub.id)) {
-				// Update done status for existing rows
+				// Update done status and assignees for existing rows
 				const row = subtasks.find(s => s.existingTaskId === sub.id)
 				if (row) {
 					row.done = sub.done
+					// Sync assignees if the API now provides them but the row is empty
+					if (row.assignees.length === 0 && sub.assignees && sub.assignees.length > 0) {
+						row.assignees = sub.assignees.map((u: IUser) => ({...u, name: getDisplayName(u)}))
+					}
 				}
 				continue
 			}
 
 			const weightMatch = WEIGHT_REGEX.exec(sub.description || '')
 			const weight = weightMatch ? parseInt(weightMatch[1], 10) : 0
-			const assignees: IUser[] = (sub.assignees || []).map(u => ({...u, name: getDisplayName(u)}))
+			const assignees: IUser[] = (sub.assignees || []).map((u: IUser) => ({...u, name: getDisplayName(u)}))
+
+			if (assignees.length === 0) {
+				needsAssigneeLoad = true
+			}
 
 			// Insert before the last empty row (if any)
 			const insertAt = subtasks.length > 0 && !subtasks[subtasks.length - 1].existingTaskId && subtasks[subtasks.length - 1].title === ''
@@ -233,6 +277,11 @@ watch(
 					s.weight = remaining
 				}
 			}
+		}
+
+		// If any subtask rows have no assignees, fetch them individually
+		if (needsAssigneeLoad) {
+			loadMissingAssignees()
 		}
 	},
 	{immediate: true},
@@ -270,6 +319,10 @@ const canCreate = computed(() => {
 	const hasExistingSubtasks = subtasks.some(item => item.existingTaskId)
 	return (hasNewSubtasks || hasExistingSubtasks) && totalWeight.value <= 100
 })
+
+function removeAssigneeFromRow(row: SubtaskRow, user: IUser) {
+	row.assignees = row.assignees.filter(a => a.id !== user.id)
+}
 
 function addRow(afterIndex: number) {
 	const currentTotal = subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
@@ -464,6 +517,26 @@ async function createSubtasks() {
 				font-size: 0.85rem;
 			}
 		}
+	}
+
+	.assignee-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		padding: 0.1rem 0.3rem;
+		font-size: 0.8rem;
+	}
+
+	.assignee-tag-name {
+		max-inline-size: 6rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	:deep(.assignee-tag-user) {
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.weight-wrapper {
