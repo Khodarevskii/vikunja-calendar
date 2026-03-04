@@ -468,14 +468,16 @@ function taskToEvent(task: ITask): EventInput | null {
 		start: start.toISOString(),
 		end: end.toISOString(),
 		allDay,
-		backgroundColor: color,
-		borderColor: color,
-		textColor,
+		display: 'block',
+		backgroundColor: color || 'var(--primary)',
+		borderColor: color || 'var(--primary)',
+		textColor: textColor || '#ffffff',
 		extendedProps: {
 			task,
 			done: task.done,
 			createdBy: task.createdBy,
 			assignees: task.assignees || [],
+			subtasks: [],
 		},
 		classNames,
 	}
@@ -491,6 +493,7 @@ async function fetchAllPages(params: Record<string, unknown>): Promise<ITask[]> 
 			...params,
 			filter_timezone: authStore.settings.timezone,
 			per_page: 500,
+			expand: 'subtasks',
 		}, page)
 		results.push(...(tasks as ITask[]))
 		page++
@@ -538,10 +541,31 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 			}
 		}
 
+		// Строим карту: id родителя → список подзадач (из relatedTasks.subtask)
+		const parentToSubtasks = new Map<number, ITask[]>()
+		const subtaskIds = new Set<number>()
+
+		for (const task of taskMap.values()) {
+			const subtasks = task.relatedTasks?.subtask
+			if (subtasks && subtasks.length > 0) {
+				parentToSubtasks.set(task.id, subtasks)
+				for (const sub of subtasks) {
+					subtaskIds.add(sub.id)
+				}
+			}
+		}
+
 		const events: EventInput[] = []
 		for (const task of taskMap.values()) {
+			// Пропускаем подзадачи — они будут отображены под родительской задачей
+			if (subtaskIds.has(task.id)) continue
+
 			const event = taskToEvent(task)
 			if (event) {
+				const subtasks = parentToSubtasks.get(task.id)
+				if (subtasks && subtasks.length > 0) {
+					event.extendedProps!.subtasks = subtasks
+				}
 				events.push(event)
 			}
 		}
@@ -702,30 +726,77 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 		// Добавляем всплывающую подсказку с названием задачи
 		info.el.title = info.event.title
 
-		// Отображаем аватарки всех исполнителей в ряд в правом верхнем углу
-		const {assignees} = info.event.extendedProps
-		if (!assignees || assignees.length === 0) return
-
 		const inner = info.el.querySelector('.fc-event-main') || info.el.querySelector('.fc-event-title-container') || info.el
 		inner.style.position = 'relative'
 
-		const container = document.createElement('div')
-		container.className = 'fc-event-avatars'
+		// Отображаем аватарки исполнителей родительской задачи
+		const {assignees, subtasks} = info.event.extendedProps
+		if (assignees && assignees.length > 0) {
+			const avatarContainer = document.createElement('div')
+			avatarContainer.className = 'fc-event-avatars'
 
-		for (const user of assignees as IUser[]) {
-			const avatarUrl = await fetchAvatarBlobUrl(user, 20)
-			if (!avatarUrl) continue
+			for (const user of assignees as IUser[]) {
+				const avatarUrl = await fetchAvatarBlobUrl(user, 20)
+				if (!avatarUrl) continue
 
-			const img = document.createElement('img')
-			img.src = avatarUrl
-			img.alt = getDisplayName(user)
-			img.title = getDisplayName(user)
-			img.className = 'fc-event-avatar'
-			container.appendChild(img)
+				const img = document.createElement('img')
+				img.src = avatarUrl
+				img.alt = getDisplayName(user)
+				img.title = getDisplayName(user)
+				img.className = 'fc-event-avatar'
+				avatarContainer.appendChild(img)
+			}
+
+			if (avatarContainer.children.length > 0) {
+				inner.appendChild(avatarContainer)
+			}
 		}
 
-		if (container.children.length > 0) {
-			inner.appendChild(container)
+		// Отображаем подзадачи списком под родительской задачей
+		if (subtasks && subtasks.length > 0) {
+			const subtaskList = document.createElement('div')
+			subtaskList.className = 'fc-event-subtasks'
+
+			for (const sub of subtasks as ITask[]) {
+				const row = document.createElement('div')
+				row.className = 'fc-event-subtask-row'
+
+				// Чекбокс (выполнена ли подзадача)
+				const checkbox = document.createElement('span')
+				checkbox.className = 'fc-subtask-checkbox' + (sub.done ? ' is-done' : '')
+				checkbox.textContent = sub.done ? '✓' : '○'
+				row.appendChild(checkbox)
+
+				// Название подзадачи
+				const title = document.createElement('span')
+				title.className = 'fc-subtask-title' + (sub.done ? ' is-done' : '')
+				title.textContent = sub.title
+				row.appendChild(title)
+
+				// Аватарки назначенных на подзадачу
+				if (sub.assignees && sub.assignees.length > 0) {
+					const subAvatars = document.createElement('span')
+					subAvatars.className = 'fc-subtask-assignees'
+
+					for (const user of sub.assignees as IUser[]) {
+						const avatarUrl = await fetchAvatarBlobUrl(user, 16)
+						if (!avatarUrl) continue
+
+						const img = document.createElement('img')
+						img.src = avatarUrl
+						img.alt = getDisplayName(user)
+						img.title = getDisplayName(user)
+						img.className = 'fc-subtask-avatar'
+						subAvatars.appendChild(img)
+					}
+
+					row.appendChild(subAvatars)
+				}
+
+				subtaskList.appendChild(row)
+			}
+
+			inner.appendChild(subtaskList)
 		}
 	},
 }))
@@ -931,6 +1002,70 @@ onMounted(async () => {
 
 :deep(.fc-highlight) {
 	background: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}
+
+/* Подзадачи внутри события */
+:deep(.fc-event-subtasks) {
+	margin-top: 4px;
+	padding-top: 3px;
+	border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+:deep(.fc-event-subtask-row) {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 1px 4px;
+	font-size: 0.75em;
+	line-height: 1.3;
+	opacity: 0.92;
+}
+
+:deep(.fc-subtask-checkbox) {
+	flex-shrink: 0;
+	font-size: 0.85em;
+	width: 14px;
+	text-align: center;
+}
+
+:deep(.fc-subtask-checkbox.is-done) {
+	opacity: 0.6;
+}
+
+:deep(.fc-subtask-title) {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+:deep(.fc-subtask-title.is-done) {
+	text-decoration: line-through;
+	opacity: 0.6;
+}
+
+:deep(.fc-subtask-assignees) {
+	display: flex;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+:deep(.fc-subtask-avatar) {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 1px solid rgba(255, 255, 255, 0.7);
+	object-fit: cover;
+}
+
+/* Блочные события всегда имеют фон */
+:deep(.fc-daygrid-event) {
+	border-radius: 4px;
+	min-height: 22px;
+}
+
+:deep(.fc-daygrid-block-event .fc-event-main) {
+	padding: 2px 4px;
 }
 
 .textarea {
