@@ -220,6 +220,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
 	'subtaskDoneToggled': [task: ITask],
+	'relationRemoved': [relationKind: IRelationKind, otherTaskId: number],
 }>()
 
 const taskStore = useTaskStore()
@@ -355,6 +356,8 @@ async function removeTaskRelation() {
 		relatedTasks.value[relationKind] = relatedTasks.value[relationKind]?.filter(
 			({id}) => id !== relation.otherTaskId,
 		)
+
+		emit('relationRemoved', relationKind, relation.otherTaskId)
 
 		saved.value = true
 		setTimeout(() => {

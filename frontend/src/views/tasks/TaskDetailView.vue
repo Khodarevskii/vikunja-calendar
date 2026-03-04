@@ -377,6 +377,7 @@
 							:show-no-relations-notice="true"
 							:task-id="taskId"
 							@subtask-done-toggled="recalcPercentDone"
+							@relation-removed="onRelationRemoved"
 						/>
 					</div>
 
@@ -397,6 +398,7 @@
 							:project-id="task.projectId"
 							:existing-subtasks="task.relatedTasks?.subtask || []"
 							@created="onSubtasksCreated"
+							@relation-removed="onDecompositionRelationRemoved"
 						/>
 					</div>
 
@@ -652,6 +654,7 @@ import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 
 import type {ITask} from '@/modelTypes/ITask'
+import type {IRelationKind} from '@/types/IRelationKind'
 import type {IProject} from '@/modelTypes/IProject'
 
 import {PRIORITIES, type Priority} from '@/constants/priorities'
@@ -1224,6 +1227,28 @@ async function onSubtasksCreated(createdTasks: ITask[]) {
 	// Ensure related tasks and percentDone sections are visible
 	activeFields.relatedTasks = true
 	activeFields.percentDone = true
+}
+
+async function onRelationRemoved(relationKind: IRelationKind, otherTaskId: number) {
+	// When a relation is removed from Related Tasks, update task.relatedTasks
+	// so that TaskDecomposition's existingSubtasks prop reflects the change
+	if (task.value.relatedTasks?.[relationKind]) {
+		task.value.relatedTasks[relationKind] = task.value.relatedTasks[relationKind]!.filter(
+			t => t.id !== otherTaskId,
+		)
+	}
+	await recalcPercentDone()
+}
+
+async function onDecompositionRelationRemoved(otherTaskId: number) {
+	// When a subtask is removed from Decomposition, update task.relatedTasks
+	// so that RelatedTasks reflects the change
+	if (task.value.relatedTasks?.subtask) {
+		task.value.relatedTasks.subtask = task.value.relatedTasks.subtask.filter(
+			t => t.id !== otherTaskId,
+		)
+	}
+	await recalcPercentDone()
 }
 
 function setRelatedTasksActive() {

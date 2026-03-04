@@ -6,36 +6,28 @@
 		<div class="subtask-list">
 			<div
 				v-for="(item, index) in subtasks"
-				:key="index"
+				:key="item.existingTaskId || `new-${index}`"
 				class="subtask-row"
-				:class="{'is-existing': item.existingTaskId, 'is-done': item.done}"
+				:class="{'is-done': item.done}"
 			>
 				<span class="row-number">{{ index + 1 }}.</span>
-				<span
-					v-if="item.existingTaskId"
-					class="subtask-title existing-title"
-					:class="{'is-strikethrough': item.done}"
-				>
-					<Icon
-						v-if="item.done"
-						icon="check"
-						class="done-icon"
-					/>
-					{{ item.title }}
-				</span>
+				<Icon
+					v-if="item.done"
+					icon="check"
+					class="done-icon"
+				/>
 				<input
-					v-else
 					:ref="el => setInputRef(index, el)"
 					v-model="item.title"
 					type="text"
 					class="input subtask-title"
+					:class="{'is-strikethrough': item.done}"
 					:placeholder="$t('task.decompose.titlePlaceholder')"
 					:disabled="isCreating"
 					@keydown.enter.prevent="addRow(index)"
 				>
 				<div class="assignee-wrapper">
 					<Multiselect
-						v-if="!item.existingTaskId"
 						v-model="item.assignee"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
 						:loading="userSearchLoading"
@@ -54,20 +46,9 @@
 							/>
 						</template>
 					</Multiselect>
-					<span
-						v-else-if="item.assignee"
-						class="existing-assignee"
-					>
-						<User
-							:avatar-size="20"
-							:show-username="false"
-							:user="item.assignee"
-						/>
-					</span>
 				</div>
 				<div class="weight-wrapper">
 					<input
-						v-if="!item.existingTaskId"
 						v-model.number="item.weight"
 						type="number"
 						class="input subtask-weight"
@@ -76,24 +57,16 @@
 						:disabled="isCreating"
 						@keydown.enter.prevent="addRow(index)"
 					>
-					<span
-						v-else
-						class="subtask-weight existing-weight"
-					>{{ item.weight }}</span>
 					<span class="weight-sign">%</span>
 				</div>
 				<BaseButton
-					v-if="subtasks.length > 1 && !item.existingTaskId"
+					v-if="subtasks.length > 1"
 					class="remove-row"
 					:disabled="isCreating"
 					@click="removeRow(index)"
 				>
 					<Icon icon="times" />
 				</BaseButton>
-				<span
-					v-else-if="item.existingTaskId"
-					class="existing-marker"
-				/>
 			</div>
 		</div>
 		<div class="list-controls">
@@ -186,6 +159,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
 	'created': [tasks: ITask[]],
+	'relationRemoved': [taskId: number],
 }>()
 
 const {t} = useI18n({useScope: 'global'})
@@ -195,34 +169,67 @@ const subtasks = reactive<SubtaskRow[]>([
 	{title: '', weight: 100, assignee: null},
 ])
 
-// Load existing subtasks into the form
+// Load existing subtasks into the form and sync when Related Tasks changes
 watch(
 	() => props.existingSubtasks,
 	(existing) => {
+		const existingIds = new Set((existing || []).map(s => s.id))
+
+		// Remove rows whose existing task was deleted from Related Tasks
+		for (let i = subtasks.length - 1; i >= 0; i--) {
+			if (subtasks[i].existingTaskId && !existingIds.has(subtasks[i].existingTaskId!)) {
+				subtasks.splice(i, 1)
+			}
+		}
+
 		if (!existing || existing.length === 0) {
+			// If all existing removed and no new rows left, ensure at least one empty row
+			if (subtasks.length === 0) {
+				subtasks.push({title: '', weight: 100, assignee: null})
+			}
 			return
 		}
 
-		const rows: SubtaskRow[] = existing.map(sub => {
+		// Add/update existing subtasks that aren't already in the list
+		const currentExistingIds = new Set(
+			subtasks.filter(s => s.existingTaskId).map(s => s.existingTaskId),
+		)
+
+		for (const sub of existing) {
+			if (currentExistingIds.has(sub.id)) {
+				// Update done status for existing rows
+				const row = subtasks.find(s => s.existingTaskId === sub.id)
+				if (row) {
+					row.done = sub.done
+				}
+				continue
+			}
+
 			const weightMatch = WEIGHT_REGEX.exec(sub.description || '')
 			const weight = weightMatch ? parseInt(weightMatch[1], 10) : 0
 			const assignee = sub.assignees?.length > 0 ? sub.assignees[0] : null
 
-			return {
+			// Insert before the last empty row (if any)
+			const insertAt = subtasks.length > 0 && !subtasks[subtasks.length - 1].existingTaskId && subtasks[subtasks.length - 1].title === ''
+				? subtasks.length - 1
+				: subtasks.length
+
+			subtasks.splice(insertAt, 0, {
 				title: sub.title,
 				weight,
 				assignee,
 				existingTaskId: sub.id,
 				done: sub.done,
-			} as SubtaskRow
-		})
+			})
+		}
 
-		// Add an empty row for new subtasks
-		const usedWeight = rows.reduce((sum, r) => sum + r.weight, 0)
-		const remaining = Math.max(0, 100 - usedWeight)
-		rows.push({title: '', weight: remaining, assignee: null})
-
-		subtasks.splice(0, subtasks.length, ...rows)
+		// Ensure there's at least one empty row for adding new subtasks
+		const hasEmptyNew = subtasks.some(s => !s.existingTaskId && s.title === '')
+		if (!hasEmptyNew) {
+			const usedWeight = subtasks.reduce((sum, r) => sum + r.weight, 0)
+			const remaining = Math.max(0, 100 - usedWeight)
+			subtasks.push({title: '', weight: remaining, assignee: null})
+		}
 	},
 	{immediate: true},
 )
@@ -255,7 +262,9 @@ const totalWeight = computed(() => {
 })
 
 const canCreate = computed(() => {
-	return subtasks.some(item => item.title.trim().length > 0 && !item.existingTaskId) && totalWeight.value <= 100
+	const hasNewSubtasks = subtasks.some(item => item.title.trim().length > 0 && !item.existingTaskId)
+	const hasExistingSubtasks = subtasks.some(item => item.existingTaskId)
+	return (hasNewSubtasks || hasExistingSubtasks) && totalWeight.value <= 100
 })
 
 function addRow(afterIndex: number) {
@@ -267,8 +276,22 @@ function addRow(afterIndex: number) {
 	})
 }
 
-function removeRow(index: number) {
+async function removeRow(index: number) {
 	if (subtasks.length <= 1) return
+
+	const row = subtasks[index]
+
+	// If this is an existing subtask, delete the relation
+	if (row.existingTaskId) {
+		const taskRelationService = new TaskRelationService()
+		await taskRelationService.delete(new TaskRelationModel({
+			taskId: props.taskId,
+			otherTaskId: row.existingTaskId,
+			relationKind: RELATION_KIND.SUBTASK,
+		}))
+		emit('relationRemoved', row.existingTaskId)
+	}
+
 	subtasks.splice(index, 1)
 }
 
@@ -279,9 +302,14 @@ function focus() {
 defineExpose({focus})
 
 async function createSubtasks() {
-	const validSubtasks = subtasks.filter(item => item.title.trim().length > 0 && !item.existingTaskId)
+	const newSubtasks = subtasks.filter(item => item.title.trim().length > 0 && !item.existingTaskId)
+	const existingSubtasks = subtasks.filter(item => item.existingTaskId)
 
-	if (validSubtasks.length === 0 || isCreating.value || totalWeight.value > 100) {
+	if (newSubtasks.length === 0 && existingSubtasks.length === 0) {
+		return
+	}
+
+	if (isCreating.value || totalWeight.value > 100) {
 		return
 	}
 
@@ -294,8 +322,20 @@ async function createSubtasks() {
 	const createdTasks: ITask[] = []
 
 	try {
-		for (const item of validSubtasks) {
-			// Store weight as parseable marker + human-readable text
+		// Update existing subtasks (title, weight, assignee)
+		for (const item of existingSubtasks) {
+			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
+
+			await taskService.update(new TaskModel({
+				id: item.existingTaskId,
+				title: item.title.trim(),
+				description,
+				projectId: props.projectId,
+			}))
+		}
+
+		// Create new subtasks
+		for (const item of newSubtasks) {
 			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
 
 			const newTask = await taskService.create(new TaskModel({
@@ -319,9 +359,13 @@ async function createSubtasks() {
 		}
 
 		createdCount.value = createdTasks.length
-		subtasks.splice(0, subtasks.length, {title: '', weight: 100, assignee: null})
 		emit('created', createdTasks)
-		success({message: t('task.decompose.success', {count: createdTasks.length})})
+
+		if (createdTasks.length > 0) {
+			success({message: t('task.decompose.success', {count: createdTasks.length})})
+		} else {
+			success({message: t('task.decompose.updated')})
+		}
 	} catch (e) {
 		errorMessage.value = t('task.decompose.error')
 		throw e
@@ -361,14 +405,6 @@ async function createSubtasks() {
 	.subtask-title {
 		flex: 1;
 		min-inline-size: 0;
-	}
-
-	.existing-title {
-		font-size: 0.9rem;
-		color: var(--text);
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
 
 		&.is-strikethrough {
 			text-decoration: line-through;
@@ -379,29 +415,11 @@ async function createSubtasks() {
 	.done-icon {
 		color: var(--success);
 		font-size: 0.8rem;
-	}
-
-	.is-existing {
-		opacity: 0.7;
-	}
-
-	.existing-assignee {
-		display: flex;
-		align-items: center;
-	}
-
-	.existing-weight {
-		display: inline-block;
-		inline-size: 4rem;
-		text-align: center;
-		font-size: 0.9rem;
-		color: var(--grey-500);
-	}
-
-	.existing-marker {
-		// Placeholder to keep alignment with rows that have a remove button
-		inline-size: 1.25rem;
 		flex-shrink: 0;
+	}
+
+	.is-done {
+		opacity: 0.7;
 	}
 
 	.assignee-wrapper {
