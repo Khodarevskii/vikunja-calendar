@@ -90,12 +90,7 @@
 							<span class="search-result">{{ label !== '' ? data[label] : data }}</span>
 						</slot>
 					</span>
-					<span
-						v-if="selectPlaceholder.trim()"
-						class="hint-text"
-					>
-						{{ selectPlaceholder }}
-					</span>
+
 				</BaseButton>
 
 				<BaseButton
@@ -116,9 +111,6 @@
 								{{ query }}
 							</span>
 						</slot>
-					</span>
-					<span class="hint-text">
-						{{ createPlaceholder }}
 					</span>
 				</BaseButton>
 			</div>
