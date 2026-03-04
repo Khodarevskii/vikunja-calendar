@@ -28,15 +28,14 @@
 				>
 				<div class="assignee-wrapper">
 					<Multiselect
-						v-model="item.assignee"
+						v-model="item.assignees"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
 						:loading="userSearchLoading"
 						:search-results="foundUsers"
 						label="name"
-						:multiple="false"
+						:multiple="true"
 						:disabled="isCreating"
 						@search="findUser"
-						@select="(user: IUser) => item.assignee = user"
 					>
 						<template #searchResult="{option: user}">
 							<User
@@ -139,7 +138,7 @@ import {useTaskStore} from '@/stores/tasks'
 interface SubtaskRow {
 	title: string
 	weight: number
-	assignee: IUser | null
+	assignees: IUser[]
 	existingTaskId?: number
 	done?: boolean
 }
@@ -161,7 +160,7 @@ const {t} = useI18n({useScope: 'global'})
 const taskStore = useTaskStore()
 
 const subtasks = reactive<SubtaskRow[]>([
-	{title: '', weight: 100, assignee: null},
+	{title: '', weight: 100, assignees: []},
 ])
 
 // Load existing subtasks into the form and sync when Related Tasks changes
@@ -180,7 +179,7 @@ watch(
 		if (!existing || existing.length === 0) {
 			// If all existing removed and no new rows left, ensure at least one empty row
 			if (subtasks.length === 0) {
-				subtasks.push({title: '', weight: 100, assignee: null})
+				subtasks.push({title: '', weight: 100, assignees: []})
 			}
 			return
 		}
@@ -202,7 +201,7 @@ watch(
 
 			const weightMatch = WEIGHT_REGEX.exec(sub.description || '')
 			const weight = weightMatch ? parseInt(weightMatch[1], 10) : 0
-			const assignee = sub.assignees?.length > 0 ? sub.assignees[0] : null
+			const assignees: IUser[] = (sub.assignees || []).map(u => ({...u, name: getDisplayName(u)}))
 
 			// Insert before the last empty row (if any)
 			const insertAt = subtasks.length > 0 && !subtasks[subtasks.length - 1].existingTaskId && subtasks[subtasks.length - 1].title === ''
@@ -212,7 +211,7 @@ watch(
 			subtasks.splice(insertAt, 0, {
 				title: sub.title,
 				weight,
-				assignee,
+				assignees,
 				existingTaskId: sub.id,
 				done: sub.done,
 			})
@@ -227,7 +226,7 @@ watch(
 		// Ensure there's at least one empty row for adding new subtasks
 		const hasEmptyNew = subtasks.some(s => !s.existingTaskId && s.title === '')
 		if (!hasEmptyNew) {
-			subtasks.push({title: '', weight: remaining, assignee: null})
+			subtasks.push({title: '', weight: remaining, assignees: []})
 		} else {
 			for (const s of subtasks) {
 				if (!s.existingTaskId && s.title === '') {
@@ -275,7 +274,7 @@ const canCreate = computed(() => {
 function addRow(afterIndex: number) {
 	const currentTotal = subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
 	const remaining = Math.max(0, 100 - currentTotal)
-	subtasks.splice(afterIndex + 1, 0, {title: '', weight: remaining, assignee: null})
+	subtasks.splice(afterIndex + 1, 0, {title: '', weight: remaining, assignees: []})
 	nextTick(() => {
 		inputRefs.value[afterIndex + 1]?.focus()
 	})
@@ -340,15 +339,19 @@ async function createSubtasks() {
 
 			// Handle assignee changes for existing subtasks
 			const originalTask = props.existingSubtasks?.find(s => s.id === item.existingTaskId)
-			const originalAssigneeId = originalTask?.assignees?.length > 0 ? originalTask.assignees[0].id : null
-			const newAssigneeId = item.assignee?.id ?? null
+			const originalIds = new Set((originalTask?.assignees || []).map(u => u.id))
+			const newIds = new Set(item.assignees.map(u => u.id))
 
-			if (newAssigneeId !== originalAssigneeId) {
-				if (originalAssigneeId && originalTask?.assignees?.[0]) {
-					await taskStore.removeAssignee({user: originalTask.assignees[0], taskId: item.existingTaskId!})
+			// Remove assignees that were removed from the form
+			for (const user of (originalTask?.assignees || [])) {
+				if (!newIds.has(user.id)) {
+					await taskStore.removeAssignee({user, taskId: item.existingTaskId!})
 				}
-				if (item.assignee) {
-					await taskStore.addAssignee({user: item.assignee, taskId: item.existingTaskId!})
+			}
+			// Add assignees that were added in the form
+			for (const user of item.assignees) {
+				if (!originalIds.has(user.id)) {
+					await taskStore.addAssignee({user, taskId: item.existingTaskId!})
 				}
 			}
 		}
@@ -369,9 +372,9 @@ async function createSubtasks() {
 				relationKind: RELATION_KIND.SUBTASK,
 			}))
 
-			// Assign user if selected
-			if (item.assignee) {
-				await taskStore.addAssignee({user: item.assignee, taskId: newTask.id})
+			// Assign users if selected
+			for (const user of item.assignees) {
+				await taskStore.addAssignee({user, taskId: newTask.id})
 			}
 
 			// Mark the row as existing so the watch won't duplicate it
@@ -449,7 +452,7 @@ async function createSubtasks() {
 
 	.assignee-wrapper {
 		flex-shrink: 0;
-		inline-size: 10rem;
+		inline-size: 14rem;
 
 		:deep(.multiselect) {
 			.input-wrapper {
