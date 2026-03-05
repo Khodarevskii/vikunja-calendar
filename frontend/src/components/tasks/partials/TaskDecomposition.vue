@@ -508,9 +508,6 @@ async function createSubtasks() {
 		flex-shrink: 0;
 	}
 
-	.is-done {
-		opacity: 0.7;
-	}
 
 	.assignee-wrapper {
 		flex-shrink: 0;
