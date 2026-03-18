@@ -740,6 +740,8 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 	},
 	eventContent(info) {
 		const event = info.event
+		const viewType = info.view.type
+		const showSubtasks = viewType === 'dayGridMonth' || viewType === 'listWeek'
 		const {assignees, subtasks} = event.extendedProps
 
 		const wrapper = document.createElement('div')
@@ -790,8 +792,8 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 
 		wrapper.appendChild(header)
 
-		// === Подзадачи ===
-		if (subtasks && subtasks.length > 0) {
+		// === Подзадачи (только в «Месяц» и «Повестка дня») ===
+		if (showSubtasks && subtasks && subtasks.length > 0) {
 			const subtaskList = document.createElement('div')
 			subtaskList.className = 'fc-event-subtasks'
 
