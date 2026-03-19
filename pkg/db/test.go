@@ -75,6 +75,11 @@ func InitTestFixtures(tablenames ...string) (err error) {
 	return nil
 }
 
+func LoadAndAssertFixtures(t *testing.T) {
+	err := InitTestFixtures()
+	require.NoError(t, err)
+}
+
 // AssertExists checks and asserts the existence of certain entries in the db
 func AssertExists(t *testing.T, table string, values map[string]interface{}, custom bool) {
 	var exists bool
