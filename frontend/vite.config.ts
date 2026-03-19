@@ -218,6 +218,10 @@ function getBuildConfig(env: Record<string, string>) {
 			host: '127.0.0.1', // see: https://github.com/vitejs/vite/pull/8543
 			port: 4173,
 		},
+		preview: {
+			host: '127.0.0.1',
+			port: 4173,
+		},
 		output: {
 			manualChunks: {
 				// by putting tracking related stuff in a separated file we try to prevent unwanted blocking from ad-blockers
