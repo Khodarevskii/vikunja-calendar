@@ -119,12 +119,7 @@
 			>
 				{{ $t('task.decompose.create') }}
 			</XButton>
-			<span
-				v-if="createdCount > 0"
-				class="created-notice has-text-success"
-			>
-				{{ $t('task.decompose.created', {count: createdCount}) }}
-			</span>
+
 			<span
 				v-if="errorMessage"
 				class="error-notice has-text-danger"
@@ -467,6 +462,10 @@ async function createSubtasks() {
 </script>
 
 <style lang="scss" scoped>
+
+:deep(.hint-text){
+	display: none!important;
+}
 .task-decomposition {
 	.help-text {
 		color: var(--grey-500);
@@ -509,9 +508,6 @@ async function createSubtasks() {
 		flex-shrink: 0;
 	}
 
-	.is-done {
-		opacity: 0.7;
-	}
 
 	.assignee-wrapper {
 		flex-shrink: 0;
