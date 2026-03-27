@@ -304,6 +304,34 @@
 								/>
 							</div>
 						</CustomTransition>
+						<CustomTransition
+							name="flash-background"
+							appear
+						>
+							<div
+								v-if="activeFields.dashboardCheck"
+								class="column"
+							>
+								<div class="detail-title">
+									<Icon icon="history" />
+									{{ $t('task.attributes.checkPd') }}
+								</div>
+								<div class="dashboard-check-container">
+									<label class="checkbox-wrapper is-flex is-align-items-center">
+										<input
+											type="checkbox"
+											class="checkbox"
+											:checked="isDashboardCheckedToday"
+											:disabled="!canWrite || isDashboardCheckedToday"
+											@change="handleDashboardCheck"
+										>
+										<span class="p-2">
+											{{ isDashboardCheckedToday ? 'Проверено сегодня' : 'Отметить как проверенное' }}
+										</span>
+									</label>
+								</div>
+							</div>
+						</CustomTransition>
 					</div>
 
 					<!-- Labels -->
@@ -399,7 +427,7 @@
 							:existing-subtasks="task.relatedTasks?.subtask || []"
 							:parent-task="task"
 							@created="onSubtasksCreated"
-							@relation-removed="onDecompositionRelationRemoved"
+							@relationRemoved="onDecompositionRelationRemoved"
 						/>
 					</div>
 
@@ -431,6 +459,9 @@
 						:task-id="taskId"
 						:project-id="task.projectId"
 						:initial-comments="task.comments"
+						@commentDeleted="onCommentDeleted"
+						@commentAdded="onCommentAdded"
+						@comment-edited="onCommentEdited"
 					/>
 
 					<!-- Marker element for scroll-to-bottom button visibility -->
@@ -506,6 +537,14 @@
 							@click="setFieldActive('color')"
 						>
 							{{ $t('task.detail.actions.color') }}
+						</XButton>
+						<XButton
+							v-shortcut="'pd'"
+							variant="secondary"
+							icon="history"
+							@click="setFieldActive('dashboardCheck')"
+						>
+							{{ $t('task.detail.actions.checkPd') }}
 						</XButton>
 						
 						<span class="action-heading">{{ $t('task.detail.management') }}</span>
@@ -685,6 +724,8 @@ import TaskSubscription from '@/components/misc/Subscription.vue'
 import CustomTransition from '@/components/misc/CustomTransition.vue'
 import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
 import Reactions from '@/components/input/Reactions.vue'
+import TaskCommentService from '@/services/taskComment'
+import TaskCommentModel from '@/models/taskComment'
 
 import {uploadFile} from '@/helpers/attachments'
 import {getProjectTitle} from '@/helpers/getProjectTitle'
@@ -813,6 +854,128 @@ const color = computed(() => {
 	return color
 })
 
+const lastCheckDate = ref<string | null>(null)
+
+const isDashboardCheckedToday = computed(() => {
+	if (!lastCheckDate.value) return false
+
+	const checkDate = typeof lastCheckDate.value === 'string'
+		? new Date(lastCheckDate.value)
+		: lastCheckDate.value
+
+	const today = new Date()
+
+	return checkDate.getFullYear() === today.getFullYear() &&
+		checkDate.getMonth() === today.getMonth() &&
+		checkDate.getDate() === today.getDate()
+})
+
+function loadLastCheckDate() {
+	if (!task.value.comments || task.value.comments.length === 0) {
+		lastCheckDate.value = null
+		return
+	}
+
+	for (let i = task.value.comments.length - 1; i >= 0; i--) {
+		const comment = task.value.comments[i]
+
+		if (comment.comment && comment.comment.includes('<!-- dashboard-check -->')) {
+			const checkDate = typeof comment.created === 'string'
+				? comment.created
+				: comment.created.toISOString()
+
+			lastCheckDate.value = checkDate
+			return
+		}
+	}
+
+	lastCheckDate.value = null
+}
+
+async function handleDashboardCheck(event: Event) {
+	const target = event.target as HTMLInputElement
+
+	if (!target.checked || isDashboardCheckedToday.value || !canWrite.value) {
+		target.checked = false
+		return
+	}
+
+	const now = new Date()
+	const dateStr = now.toLocaleDateString('ru-RU', {
+		day: 'numeric', month: 'long', year: 'numeric',
+	})
+	const timeStr = now.toLocaleTimeString('ru-RU', {
+		hour: '2-digit', minute: '2-digit',
+	})
+
+	const commentContent = `<!-- dashboard-check -->\n**${dateStr} ${timeStr}**\n\nДашборд проверен`
+
+	try {
+		const newComment = new TaskCommentModel()
+		newComment.taskId = task.value.id
+		newComment.comment = commentContent
+
+		await taskCommentService.create(newComment)
+
+		lastCheckDate.value = now.toISOString()
+
+		const loaded = await taskService.get({id: props.taskId}, {expand: ['comments']})
+		task.value.comments = loaded.comments
+
+	} catch (e) {
+		console.error('Failed to create dashboard check comment', e)
+		target.checked = false
+	}
+}
+
+function onCommentDeleted(commentId: number) {
+	const index = task.value.comments.findIndex(c => c.id === commentId)
+	if (index !== -1) {
+		task.value.comments.splice(index, 1)
+		loadLastCheckDate()
+		setActiveFields()
+	}
+}
+
+function onCommentAdded(comment: ITaskComment) {
+	task.value.comments.push(comment)
+	loadLastCheckDate()
+	setActiveFields()
+}
+
+async function onCommentEdited(editedComment: ITaskComment) {
+	const index = task.value.comments.findIndex(c => c.id === editedComment.id)
+	if (index !== -1) {
+		const originalComment = task.value.comments[index]
+		const wasDashboardCheck = originalComment.comment.includes('<!-- dashboard-check -->') ||
+			originalComment.comment.includes('Дашборд проверен')
+		let updatedComment = editedComment
+		if (wasDashboardCheck && !editedComment.comment.includes('<!-- dashboard-check -->')) {
+			let cleanText = editedComment.comment
+				.replace(/^<p>/, '')
+				.replace(/<\/p>$/, '')
+				.trim()
+			updatedComment = {
+				...editedComment,
+				comment: `<!-- dashboard-check -->\n${cleanText}`
+			}
+			const newComment = new TaskCommentModel()
+			newComment.taskId = task.value.id
+			newComment.comment = updatedComment.comment
+			newComment.id = updatedComment.id
+
+			const savedComment = await taskCommentService.update(newComment)
+			task.value.comments[index] = savedComment
+		} else {
+			task.value.comments[index] = editedComment
+		}
+
+		loadLastCheckDate()
+		setActiveFields()
+	}
+}
+
+
 const isModal = computed(() => Boolean(props.backdropView))
 const isMobile = useMediaQuery('(max-width: 1024px)')
 
@@ -905,6 +1068,7 @@ onMounted(async () => {
 })
 
 const taskService = shallowReactive(new TaskService())
+const taskCommentService = shallowReactive(new TaskCommentService())
 
 // load task
 watch(
@@ -943,13 +1107,24 @@ watch(
 			resolveScrollContainer()
 			updateScrollable()
 			visible.value = true
+			loadLastCheckDate()
 		}
 	}, {immediate: true})
+
+watch(
+	() => task.value.comments,
+	() => {
+		loadLastCheckDate()
+		setActiveFields()
+	},
+	{deep: true})
+
 
 type FieldType =
 	| 'assignees'
 	| 'attachments'
 	| 'color'
+	| 'dashboardCheck'
 	| 'decompose'
 	| 'dueDate'
 	| 'endDate'
@@ -966,6 +1141,7 @@ const activeFields: { [type in FieldType]: boolean } = reactive({
 	assignees: false,
 	attachments: false,
 	color: false,
+	dashboardCheck: false,
 	decompose: false,
 	dueDate: false,
 	endDate: false,
@@ -996,12 +1172,14 @@ function setActiveFields() {
 	activeFields.reminders = task.value.reminders.length > 0
 	activeFields.repeatAfter = task.value.repeatAfter?.amount > 0 || task.value.repeatMode !== TASK_REPEAT_MODES.REPEAT_MODE_DEFAULT
 	activeFields.startDate = task.value.startDate !== null
+	activeFields.dashboardCheck = isDashboardCheckedToday.value
 }
 
 const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive({
 	assignees: null,
 	attachments: null,
 	color: null,
+	dashboardCheck: null,
 	decompose: null,
 	dueDate: null,
 	endDate: null,
@@ -1534,6 +1712,48 @@ h3 .button {
 		display: none;
 	}
 }
+
+.dashboard-check-container {
+	padding-top: .5rem;
+
+	.checkbox-wrapper {
+		cursor: pointer;
+
+		input[type="checkbox"] {
+			cursor: pointer;
+			width: 1.2em;
+			height: 1.2em;
+			appearance: none;
+			-webkit-appearance: none;
+			border: 2px solid var(--grey-500);
+			border-radius: 4px;
+			background-color: transparent;
+			position: relative;
+			transition: all 0.2s ease;
+
+			&:checked {
+				background-color: var(--success);
+				border-color: var(--success);
+
+				&::after {
+					content: '✓';
+					position: absolute;
+					color: white;
+					font-size: 1em;
+					top: 50%;
+					left: 50%;
+					transform: translate(-50%, -50%);
+				}
+			}
+
+			&:disabled {
+				opacity: 0.6;
+				cursor: not-allowed;
+			}
+		}
+	}
+}
+
 </style>
 
 <style lang="scss">
