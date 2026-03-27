@@ -256,6 +256,13 @@ const props = withDefaults(defineProps<{
 	canWrite: true,
 })
 
+const emit = defineEmits<{
+	'comment-deleted': [commentId: number],
+	'comment-added': [comment: ITaskComment],
+	'comment-edited': [comment: ITaskComment],
+}>()
+
+
 const copy = useCopyToClipboard()
 
 const {t} = useI18n({useScope: 'global'})
@@ -426,6 +433,9 @@ async function addComment() {
 		} else {
 			comments.value.push(comment)
 		}
+
+		emit('comment-added', comment)
+		
 		newCommentText.value = ''
 
 		// Ensure draft is cleared from localStorage
@@ -475,6 +485,19 @@ async function editComment() {
 	saving.value = commentEdit.id
 
 	commentEdit.taskId = props.taskId
+
+	const originalComment = comments.value.find(c => c.id === commentEdit.id)
+
+	if (originalComment?.comment?.includes('<!-- dashboard-check -->') ||
+		originalComment?.comment?.includes('Дашборд проверен')) {
+		if (!commentEdit.comment.includes('<!-- dashboard-check -->')) {
+			let cleanText = commentEdit.comment
+			cleanText = cleanText.replace(/^<p>/, '').replace(/<\/p>$/, '').trim()
+			cleanText = cleanText.replace(/<p>\s*(<br[^>]*>)?\s*<\/p>/gi, '')
+			commentEdit.comment = `<!-- dashboard-check -->\n${cleanText}`
+		}
+	}
+	
 	try {
 		const comment = await taskCommentService.update(commentEdit)
 		for (const c in comments.value) {
@@ -482,6 +505,9 @@ async function editComment() {
 				comments.value[c] = comment
 			}
 		}
+
+		emit('comment-edited', comment)
+		
 		saved.value = commentEdit.id
 		setTimeout(() => {
 			saved.value = null
@@ -497,6 +523,7 @@ async function deleteComment(commentToDelete: ITaskComment) {
 		await taskCommentService.delete(commentToDelete)
 		const index = comments.value.findIndex(({id}) => id === commentToDelete.id)
 		comments.value.splice(index, 1)
+		emit('comment-deleted', commentToDelete.id)
 		success({message: t('task.comment.deleteSuccess')})
 	} finally {
 		showDeleteModal.value = false
