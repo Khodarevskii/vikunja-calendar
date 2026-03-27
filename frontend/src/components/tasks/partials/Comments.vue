@@ -485,19 +485,6 @@ async function editComment() {
 	saving.value = commentEdit.id
 
 	commentEdit.taskId = props.taskId
-
-	const originalComment = comments.value.find(c => c.id === commentEdit.id)
-
-	if (originalComment?.comment?.includes('<!-- dashboard-check -->') ||
-		originalComment?.comment?.includes('Дашборд проверен')) {
-		if (!commentEdit.comment.includes('<!-- dashboard-check -->')) {
-			let cleanText = commentEdit.comment
-			cleanText = cleanText.replace(/^<p>/, '').replace(/<\/p>$/, '').trim()
-			cleanText = cleanText.replace(/<p>\s*(<br[^>]*>)?\s*<\/p>/gi, '')
-			commentEdit.comment = `<!-- dashboard-check -->\n${cleanText}`
-		}
-	}
-	
 	try {
 		const comment = await taskCommentService.update(commentEdit)
 		for (const c in comments.value) {

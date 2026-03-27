@@ -459,9 +459,7 @@
 						:task-id="taskId"
 						:project-id="task.projectId"
 						:initial-comments="task.comments"
-						@commentDeleted="onCommentDeleted"
-						@commentAdded="onCommentAdded"
-						@comment-edited="onCommentEdited"
+						@comment-deleted="onCommentDeleted"
 					/>
 
 					<!-- Marker element for scroll-to-bottom button visibility -->
@@ -854,43 +852,25 @@ const color = computed(() => {
 	return color
 })
 
-const lastCheckDate = ref<string | null>(null)
 
 const isDashboardCheckedToday = computed(() => {
-	if (!lastCheckDate.value) return false
-
-	const checkDate = typeof lastCheckDate.value === 'string'
-		? new Date(lastCheckDate.value)
-		: lastCheckDate.value
-
-	const today = new Date()
-
-	return checkDate.getFullYear() === today.getFullYear() &&
-		checkDate.getMonth() === today.getMonth() &&
-		checkDate.getDate() === today.getDate()
-})
-
-function loadLastCheckDate() {
-	if (!task.value.comments || task.value.comments.length === 0) {
-		lastCheckDate.value = null
-		return
-	}
+	if (!task.value.comments || task.value.comments.length === 0) return false
 
 	for (let i = task.value.comments.length - 1; i >= 0; i--) {
 		const comment = task.value.comments[i]
 
-		if (comment.comment && comment.comment.includes('<!-- dashboard-check -->')) {
-			const checkDate = typeof comment.created === 'string'
-				? comment.created
-				: comment.created.toISOString()
+		if (comment.comment && comment.comment.includes('Дашборд проверен')) {
+			const checkDate = new Date(comment.created)
+			const today = new Date()
 
-			lastCheckDate.value = checkDate
-			return
+			return checkDate.getFullYear() === today.getFullYear() &&
+				checkDate.getMonth() === today.getMonth() &&
+				checkDate.getDate() === today.getDate()
 		}
 	}
 
-	lastCheckDate.value = null
-}
+	return false
+})
 
 async function handleDashboardCheck(event: Event) {
 	const target = event.target as HTMLInputElement
@@ -908,73 +888,31 @@ async function handleDashboardCheck(event: Event) {
 		hour: '2-digit', minute: '2-digit',
 	})
 
-	const commentContent = `<!-- dashboard-check -->\n**${dateStr} ${timeStr}**\n\nДашборд проверен`
+	const commentContent = `**${dateStr} ${timeStr}**\n\nДашборд проверен`
 
 	try {
 		const newComment = new TaskCommentModel()
 		newComment.taskId = task.value.id
 		newComment.comment = commentContent
-
 		await taskCommentService.create(newComment)
-
-		lastCheckDate.value = now.toISOString()
 
 		const loaded = await taskService.get({id: props.taskId}, {expand: ['comments']})
 		task.value.comments = loaded.comments
 
 	} catch (e) {
-		console.error('Failed to create dashboard check comment', e)
 		target.checked = false
 	}
 }
 
-function onCommentDeleted(commentId: number) {
-	const index = task.value.comments.findIndex(c => c.id === commentId)
-	if (index !== -1) {
-		task.value.comments.splice(index, 1)
-		loadLastCheckDate()
+async function onCommentDeleted(commentId: number) {
+	const deletedComment = task.value.comments?.find(c => c.id === commentId)
+
+	if (deletedComment?.comment?.includes('Дашборд проверен')) {
+		const loaded = await taskService.get({id: props.taskId}, {expand: ['comments']})
+		task.value.comments = loaded.comments
 		setActiveFields()
 	}
 }
-
-function onCommentAdded(comment: ITaskComment) {
-	task.value.comments.push(comment)
-	loadLastCheckDate()
-	setActiveFields()
-}
-
-async function onCommentEdited(editedComment: ITaskComment) {
-	const index = task.value.comments.findIndex(c => c.id === editedComment.id)
-	if (index !== -1) {
-		const originalComment = task.value.comments[index]
-		const wasDashboardCheck = originalComment.comment.includes('<!-- dashboard-check -->') ||
-			originalComment.comment.includes('Дашборд проверен')
-		let updatedComment = editedComment
-		if (wasDashboardCheck && !editedComment.comment.includes('<!-- dashboard-check -->')) {
-			let cleanText = editedComment.comment
-				.replace(/^<p>/, '')
-				.replace(/<\/p>$/, '')
-				.trim()
-			updatedComment = {
-				...editedComment,
-				comment: `<!-- dashboard-check -->\n${cleanText}`
-			}
-			const newComment = new TaskCommentModel()
-			newComment.taskId = task.value.id
-			newComment.comment = updatedComment.comment
-			newComment.id = updatedComment.id
-
-			const savedComment = await taskCommentService.update(newComment)
-			task.value.comments[index] = savedComment
-		} else {
-			task.value.comments[index] = editedComment
-		}
-
-		loadLastCheckDate()
-		setActiveFields()
-	}
-}
-
 
 const isModal = computed(() => Boolean(props.backdropView))
 const isMobile = useMediaQuery('(max-width: 1024px)')
@@ -1083,7 +1021,6 @@ watch(
 			Object.assign(task.value, loaded)
 			attachmentStore.set(task.value.attachments)
 			taskColor.value = task.value.hexColor
-			setActiveFields()
 
 			if (task.value.isUnread) {
 				await taskStore.markTaskAsRead(task.value.id)
@@ -1107,18 +1044,17 @@ watch(
 			resolveScrollContainer()
 			updateScrollable()
 			visible.value = true
-			loadLastCheckDate()
+
+			setActiveFields()
 		}
 	}, {immediate: true})
 
 watch(
 	() => task.value.comments,
 	() => {
-		loadLastCheckDate()
 		setActiveFields()
 	},
 	{deep: true})
-
 
 type FieldType =
 	| 'assignees'
