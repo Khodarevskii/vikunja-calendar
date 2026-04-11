@@ -424,10 +424,8 @@
 							:ref="e => setFieldRef('decompose', e)"
 							:task-id="taskId"
 							:project-id="task.projectId"
-							:existing-subtasks="task.relatedTasks?.subtask || []"
 							:parent-task="task"
-							@created="onSubtasksCreated"
-							@relationRemoved="onDecompositionRelationRemoved"
+							@updated="onChecklistUpdated"
 						/>
 					</div>
 
@@ -1269,52 +1267,65 @@ async function removeRepeatAfter() {
 	await saveTask()
 }
 
-const WEIGHT_REGEX = /<!-- decompose-weight:(\d+) -->/
-
-function parseDecomposeWeight(description: string): number | null {
-	const match = WEIGHT_REGEX.exec(description)
-	return match ? parseInt(match[1], 10) : null
-}
-
+// Recalculate the percent_done of this task based on its real subtasks and
+// its embedded checklist items. Kept in sync with the backend implementation
+// in pkg/models/task_progress.go — when both real subtasks and checklist
+// items exist, each item contributes an equal share of 100% regardless of
+// weight. Otherwise, weights apply: weighted items claim exactly that
+// percentage, and unweighted items split whatever remains out of 100%. If the
+// sum of weights exceeds 100%, every item is given an equal share instead.
 async function recalcPercentDone() {
-	const subtasks = task.value.relatedTasks?.subtask
-	if (!subtasks || subtasks.length === 0) {
-		return
-	}
-
-	// Reload subtasks to get fresh done status and descriptions
+	// Reload the task so we have the freshest checklist and subtasks state.
 	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
 	Object.assign(task.value, loaded)
 	setActiveFields()
 
-	const freshSubtasks = task.value.relatedTasks?.subtask
-	if (!freshSubtasks || freshSubtasks.length === 0) {
+	const subtasks = task.value.relatedTasks?.subtask || []
+	const checklist = task.value.checklistItems || []
+
+	if (subtasks.length === 0 && checklist.length === 0) {
 		return
 	}
 
 	let totalWeight = 0
 	let doneWeight = 0
-	let hasWeights = false
 
-	for (const sub of freshSubtasks) {
-		const weight = parseDecomposeWeight(sub.description || '')
-		if (weight !== null) {
-			hasWeights = true
-			totalWeight += weight
-			if (sub.done) {
-				doneWeight += weight
+	if (subtasks.length > 0 && checklist.length > 0) {
+		// Both present — split equally, weights ignored.
+		const total = subtasks.length + checklist.length
+		const doneCount = subtasks.filter(s => s.done).length + checklist.filter(c => c.done).length
+		totalWeight = total
+		doneWeight = doneCount
+	} else if (subtasks.length > 0) {
+		// Only real subtasks — split equally.
+		totalWeight = subtasks.length
+		doneWeight = subtasks.filter(s => s.done).length
+	} else {
+		// Only checklist items — apply weight rules.
+		const weightSum = checklist.reduce((sum, c) => sum + (c.weight || 0), 0)
+		if (weightSum > 100) {
+			totalWeight = checklist.length
+			doneWeight = checklist.filter(c => c.done).length
+		} else {
+			const weighted = checklist.filter(c => (c.weight || 0) > 0)
+			const unweighted = checklist.filter(c => !c.weight)
+			const autoShare = unweighted.length > 0
+				? (100 - weightSum) / unweighted.length
+				: 0
+			let done = 0
+			for (const c of weighted) {
+				if (c.done) done += c.weight
 			}
+			for (const c of unweighted) {
+				if (c.done) done += autoShare
+			}
+			totalWeight = 100
+			doneWeight = done
 		}
 	}
 
-	if (!hasWeights || totalWeight === 0) {
-		// Fallback: equal weight for each subtask
-		totalWeight = freshSubtasks.length
-		doneWeight = freshSubtasks.filter(s => s.done).length
-	}
-
-	// percentDone is 0-1 in Vikunja (0.5 = 50%), rounded to nearest 0.1
-	const newPercent = Math.round((doneWeight / totalWeight) * 10) / 10
+	// percentDone is 0-1 in Vikunja (0.5 = 50%), rounded to nearest 0.01
+	const newPercent = Math.round((doneWeight / totalWeight) * 100) / 100
 
 	if (newPercent !== task.value.percentDone) {
 		await saveTask({
@@ -1324,42 +1335,24 @@ async function recalcPercentDone() {
 	}
 }
 
-async function onSubtasksCreated(createdTasks: ITask[]) {
-	// Reload the task to refresh the related tasks section
+async function onChecklistUpdated() {
+	// Reload the task to refresh the checklist state and percent_done.
 	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
 	Object.assign(task.value, loaded)
-
-	// Auto-set percentDone to 0 so the progress bar appears
-	if (task.value.percentDone === 0 || !activeFields.percentDone) {
-		await saveTask({
-			...task.value,
-			percentDone: 0,
-		})
-		activeFields.percentDone = true
-	}
-
 	setActiveFields()
-	// Ensure related tasks and percentDone sections are visible
-	activeFields.relatedTasks = true
-	activeFields.percentDone = true
-}
-
-async function onRelationRemoved(relationKind: IRelationKind, otherTaskId: number) {
-	// When a relation is removed from Related Tasks, update task.relatedTasks
-	// so that TaskDecomposition's existingSubtasks prop reflects the change
-	if (task.value.relatedTasks?.[relationKind]) {
-		task.value.relatedTasks[relationKind] = task.value.relatedTasks[relationKind]!.filter(
-			t => t.id !== otherTaskId,
-		)
+	// Ensure the percent_done section is visible once we have something to
+	// track.
+	if ((task.value.checklistItems || []).length > 0 || (task.value.relatedTasks?.subtask || []).length > 0) {
+		activeFields.percentDone = true
 	}
 	await recalcPercentDone()
 }
 
-async function onDecompositionRelationRemoved(otherTaskId: number) {
-	// When a subtask is removed from Decomposition, update task.relatedTasks
-	// so that RelatedTasks reflects the change
-	if (task.value.relatedTasks?.subtask) {
-		task.value.relatedTasks.subtask = task.value.relatedTasks.subtask.filter(
+async function onRelationRemoved(relationKind: IRelationKind, otherTaskId: number) {
+	// When a relation is removed from Related Tasks, update task.relatedTasks
+	// so that subsequent re-calculations see the latest state.
+	if (task.value.relatedTasks?.[relationKind]) {
+		task.value.relatedTasks[relationKind] = task.value.relatedTasks[relationKind]!.filter(
 			t => t.id !== otherTaskId,
 		)
 	}

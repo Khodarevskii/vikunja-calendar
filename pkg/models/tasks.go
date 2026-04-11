@@ -49,6 +49,27 @@ const (
 	TaskRepeatModeFromCurrentDate
 )
 
+// TaskChecklistItem is a lightweight checklist entry on a task, used by the
+// task decomposition feature. Checklist items are not real subtasks: they live
+// inside the parent task's json column. They may have a weight that contributes
+// to the parent task's percent_done, an optional assignee and a position.
+type TaskChecklistItem struct {
+	// A client generated id identifying this item. Required so the frontend can
+	// track which items already exist when updating.
+	ID string `json:"id"`
+	// The checklist item title.
+	Title string `json:"title"`
+	// The weight of this item in percent. Can be 0 (meaning "auto share"). See
+	// the decomposition docs for how weights are normalised.
+	Weight float64 `json:"weight"`
+	// Whether this item is done.
+	Done bool `json:"done"`
+	// The id of a single user assigned to this item. 0 means no assignee.
+	AssigneeID int64 `json:"assignee_id"`
+	// The position of this item in the list.
+	Position float64 `json:"position"`
+}
+
 // Task represents a task in a project
 type Task struct {
 	// The unique, numeric id of this task.
@@ -85,6 +106,12 @@ type Task struct {
 	HexColor string `xorm:"varchar(6) null" json:"hex_color" valid:"runelength(0|7)" maxLength:"7"`
 	// Determines how far a task is left from being done
 	PercentDone float64 `xorm:"DOUBLE null" json:"percent_done"`
+
+	// Checklist items used by the task decomposition feature. These are lightweight
+	// items embedded on the task (not full subtasks). They may carry a weight that
+	// contributes to the parent task's percent_done, an optional assignee and a
+	// position. When rendered, they inherit the parent task's dates.
+	ChecklistItems []*TaskChecklistItem `xorm:"json null" json:"checklist_items"`
 
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
@@ -1125,6 +1152,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		"bucket_id",
 		"repeat_mode",
 		"cover_image_attachment_id",
+		"checklist_items",
 	}
 
 	// Validate fields if provided
@@ -1186,6 +1214,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 		if !fieldSet["cover_image_attachment_id"] {
 			t.CoverImageAttachmentID = ot.CoverImageAttachmentID
+		}
+		if !fieldSet["checklist_items"] {
+			t.ChecklistItems = ot.ChecklistItems
 		}
 	}
 
@@ -1408,6 +1439,21 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	})
 	if err != nil {
 		return err
+	}
+
+	// Recompute percent_done on the task itself whenever its checklist items
+	// may have changed. This keeps the parent in sync when a checklist item is
+	// ticked or updated.
+	if err := recalculateTaskPercentDone(s, t.ID); err != nil {
+		log.Errorf("Could not recalculate percent_done for task %d: %s", t.ID, err)
+	}
+
+	// If this task's "done" state changed, propagate the change to any real
+	// parent task that might have it as a subtask.
+	if updateDoneAt {
+		if err := recalculateParentTasksPercentDone(s, t.ID); err != nil {
+			log.Errorf("Could not recalculate parent percent_done for task %d: %s", t.ID, err)
+		}
 	}
 
 	return updateProjectLastUpdated(s, &Project{ID: t.ProjectID})
