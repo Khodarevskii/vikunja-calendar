@@ -1410,6 +1410,15 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		return err
 	}
 
+	// Whenever this task's done state changed, recompute the percent_done of
+	// any real parent tasks this task is a subtask of. This keeps the progress
+	// bar on the parent in sync as subtasks are ticked off.
+	if updateDoneAt {
+		if err := recalculateParentTasksPercentDone(s, t.ID); err != nil {
+			log.Errorf("Could not recalculate parent percent_done for task %d: %s", t.ID, err)
+		}
+	}
+
 	return updateProjectLastUpdated(s, &Project{ID: t.ProjectID})
 }
 
