@@ -1,6 +1,6 @@
 import {PRIORITIES, type Priority} from '@/constants/priorities'
 
-import type {ITask} from '@/modelTypes/ITask'
+import type {ITask, ITaskChecklistItem} from '@/modelTypes/ITask'
 import type {ILabel} from '@/modelTypes/ILabel'
 import type {IUser} from '@/modelTypes/IUser'
 import type {IAttachment} from '@/modelTypes/IAttachment'
@@ -77,6 +77,7 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	parentTaskId: ITask['id'] = 0
 	hexColor = ''
 	percentDone = 0
+	checklistItems: ITaskChecklistItem[] = []
 	relatedTasks:  Partial<Record<IRelationKind, ITask[]>> = {}
 	attachments: IAttachment[] = []
 	coverImageAttachmentId: IAttachment['id'] = null
@@ -126,6 +127,19 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 		if (this.hexColor !== '' && this.hexColor.substring(0, 1) !== '#') {
 			this.hexColor = '#' + this.hexColor
 		}
+
+		// Checklist items are a plain JSON array — make sure it's always defined
+		// so the UI doesn't have to null-check every access.
+		this.checklistItems = Array.isArray(this.checklistItems)
+			? this.checklistItems.map(item => ({
+				id: item.id,
+				title: item.title,
+				weight: Number(item.weight) || 0,
+				done: !!item.done,
+				assigneeId: Number(item.assigneeId) || 0,
+				position: Number(item.position) || 0,
+			}))
+			: []
 
 		// Convert all subtasks to task models
 		Object.keys(this.relatedTasks).forEach(relationKind => {
