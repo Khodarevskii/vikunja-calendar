@@ -1441,6 +1441,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		return err
 	}
 
+<<<<<<< HEAD
 	// Recompute percent_done on the task itself whenever its checklist items
 	// may have changed. This keeps the parent in sync when a checklist item is
 	// ticked or updated.
@@ -1450,6 +1451,11 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 
 	// If this task's "done" state changed, propagate the change to any real
 	// parent task that might have it as a subtask.
+=======
+	// Whenever this task's done state changed, recompute the percent_done of
+	// any real parent tasks this task is a subtask of. This keeps the progress
+	// bar on the parent in sync as subtasks are ticked off.
+>>>>>>> 7acc96264bc15d023edb133190fa493a1fd75ed7
 	if updateDoneAt {
 		if err := recalculateParentTasksPercentDone(s, t.ID); err != nil {
 			log.Errorf("Could not recalculate parent percent_done for task %d: %s", t.ID, err)
