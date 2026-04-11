@@ -216,7 +216,7 @@ import {PERMISSIONS} from '@/constants/permissions'
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import ProjectService from '@/services/project'
-import type {ITask} from '@/modelTypes/ITask'
+import type {ITask, ITaskChecklistItem} from '@/modelTypes/ITask'
 import type {IUser} from '@/modelTypes/IUser'
 import {useProjectStore} from '@/stores/projects'
 import {useAuthStore} from '@/stores/auth'
@@ -242,6 +242,38 @@ const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null)
 
 // Состояние загрузки
 const loading = ref(false)
+
+// Кэш пользователей для отображения аватарок исполнителей в элементах чек-листа
+// (элементы декомпозиции хранят только assigneeId — полного объекта у нас нет).
+const assigneeCache = new Map<number, IUser>()
+
+async function ensureAssigneeCacheFor(tasks: ITask[]) {
+	const neededProjectIds = new Set<number>()
+	for (const task of tasks) {
+		if (!task.checklistItems || task.checklistItems.length === 0) continue
+		for (const item of task.checklistItems) {
+			if (item.assigneeId && !assigneeCache.has(item.assigneeId)) {
+				neededProjectIds.add(task.projectId)
+				break
+			}
+		}
+	}
+
+	if (neededProjectIds.size === 0) return
+
+	const projectUserService = new ProjectUserService()
+	for (const projectId of neededProjectIds) {
+		try {
+			const users = await projectUserService.getAll({projectId}, {}) as IUser[]
+			for (const u of users) {
+				u.name = getDisplayName(u)
+				assigneeCache.set(u.id, u)
+			}
+		} catch {
+			// silently ignore — avatars won't be shown for unknown users
+		}
+	}
+}
 
 // Все неархивные проекты
 const allProjects = computed(() =>
@@ -478,6 +510,7 @@ function taskToEvent(task: ITask): EventInput | null {
 			createdBy: task.createdBy,
 			assignees: task.assignees || [],
 			subtasks: [],
+			checklistItems: task.checklistItems || [],
 		},
 		classNames,
 	}
@@ -570,6 +603,9 @@ async function loadTasksForRange(start: Date, end: Date): Promise<EventInput[]> 
 			)
 			parentToSubtasks.set(parentId, fullSubtasks)
 		}
+
+		// Подгружаем пользователей для исполнителей элементов чек-листа
+		await ensureAssigneeCacheFor(Array.from(taskMap.values()))
 
 		const events: EventInput[] = []
 		for (const task of taskMap.values()) {
@@ -742,7 +778,7 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 		const event = info.event
 		const viewType = info.view.type
 		const showSubtasks = viewType === 'dayGridMonth' || viewType === 'listWeek'
-		const {assignees, subtasks} = event.extendedProps
+		const {assignees, subtasks, checklistItems} = event.extendedProps
 
 		const wrapper = document.createElement('div')
 		wrapper.className = 'fc-custom-event'
@@ -792,11 +828,15 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 
 		wrapper.appendChild(header)
 
-		// === Подзадачи (только в «Месяц» и «Повестка дня») ===
-		if (showSubtasks && subtasks && subtasks.length > 0) {
+		// === Подзадачи и элементы чек-листа (только в «Месяц» и «Повестка дня») ===
+		const hasSubtasks = subtasks && subtasks.length > 0
+		const hasChecklistItems = checklistItems && (checklistItems as ITaskChecklistItem[]).length > 0
+		if (showSubtasks && (hasSubtasks || hasChecklistItems)) {
 			const subtaskList = document.createElement('div')
 			subtaskList.className = 'fc-event-subtasks'
 
+			// Сначала реальные подзадачи
+			if (hasSubtasks) {
 			for (const sub of subtasks as ITask[]) {
 				const row = document.createElement('div')
 				row.className = 'fc-event-subtask-row'
@@ -836,6 +876,53 @@ const calendarOptions = computed<CalendarOptions>(() => ({
 				}
 
 				subtaskList.appendChild(row)
+			}
+			}
+
+			// Потом элементы чек-листа (декомпозиция) — они наследуют даты родителя
+			if (hasChecklistItems) {
+				for (const item of checklistItems as ITaskChecklistItem[]) {
+					const row = document.createElement('div')
+					row.className = 'fc-event-subtask-row fc-event-checklist-row'
+
+					const checkbox = document.createElement('span')
+					checkbox.className = 'fc-subtask-checkbox' + (item.done ? ' is-done' : '')
+					checkbox.textContent = item.done ? '✓' : '○'
+					row.appendChild(checkbox)
+
+					const title = document.createElement('span')
+					title.className = 'fc-subtask-title' + (item.done ? ' is-done' : '')
+					title.textContent = item.title
+					row.appendChild(title)
+
+					if (item.weight && item.weight > 0) {
+						const weight = document.createElement('span')
+						weight.className = 'fc-subtask-weight'
+						weight.textContent = `${item.weight}%`
+						row.appendChild(weight)
+					}
+
+					if (item.assigneeId) {
+						const cached = assigneeCache.get(item.assigneeId)
+						if (cached) {
+							const avatar = document.createElement('span')
+							avatar.className = 'fc-subtask-assignees'
+							const img = document.createElement('img')
+							img.className = 'fc-subtask-avatar'
+							img.alt = getDisplayName(cached)
+							img.title = getDisplayName(cached)
+							img.style.width = '16px'
+							img.style.height = '16px'
+							avatar.appendChild(img)
+							fetchAvatarBlobUrl(cached, 16).then(url => {
+								if (url) img.src = url
+							})
+							row.appendChild(avatar)
+						}
+					}
+
+					subtaskList.appendChild(row)
+				}
 			}
 
 			wrapper.appendChild(subtaskList)
@@ -1130,6 +1217,18 @@ onMounted(async () => {
 :deep(.fc-subtask-title.is-done) {
 	text-decoration: line-through;
 	opacity: 0.6;
+}
+
+:deep(.fc-subtask-weight) {
+	flex-shrink: 0;
+	font-size: 0.75em;
+	font-weight: 600;
+	opacity: 0.85;
+	padding: 0 3px;
+}
+
+:deep(.fc-event-checklist-row) {
+	font-style: italic;
 }
 
 /* Аватарки подзадач — всегда видны в той же строке, не обрезаются */

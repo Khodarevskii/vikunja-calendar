@@ -17,6 +17,15 @@ import type {ITaskReminder} from '@/modelTypes/ITaskReminder'
 import type {IReactionPerEntity} from '@/modelTypes/IReaction'
 import type {ITaskComment} from '@/modelTypes/ITaskComment.ts'
 
+export interface ITaskChecklistItem {
+	id: string
+	title: string
+	weight: number
+	done: boolean
+	assigneeId: number
+	position: number
+}
+
 export interface ITask extends IAbstract {
 	id: number
 	title: string
@@ -37,6 +46,7 @@ export interface ITask extends IAbstract {
 	parentTaskId: ITask['id']
 	hexColor: string
 	percentDone: number
+	checklistItems: ITaskChecklistItem[]
 	relatedTasks: Partial<Record<IRelationKind, ITask[]>>
 	attachments: IAttachment[]
 	coverImageAttachmentId: IAttachment['id'] | null

@@ -5,17 +5,20 @@
 		</p>
 		<div class="subtask-list">
 			<div
-				v-for="(item, index) in subtasks"
-				:key="item.existingTaskId || `new-${index}`"
+				v-for="(item, index) in items"
+				:key="item.id"
 				class="subtask-row"
 				:class="{'is-done': item.done}"
 			>
 				<span class="row-number">{{ index + 1 }}.</span>
-				<Icon
-					v-if="item.done"
-					icon="check"
-					class="done-icon"
-				/>
+				<BaseButton
+					class="done-toggle"
+					:class="{'is-done': item.done}"
+					:disabled="isSaving"
+					@click="toggleDone(item)"
+				>
+					<Icon :icon="item.done ? 'check-square' : ['far', 'square']" />
+				</BaseButton>
 				<input
 					:ref="el => setInputRef(index, el)"
 					v-model="item.title"
@@ -23,18 +26,20 @@
 					class="input subtask-title"
 					:class="{'is-strikethrough': item.done}"
 					:placeholder="$t('task.decompose.titlePlaceholder')"
-					:disabled="isCreating"
+					:disabled="isSaving"
 					@keydown.enter.prevent="addRow(index)"
+					@blur="persist"
 				>
 				<div class="assignee-wrapper">
 					<Multiselect
-						v-model="item.assignees"
+						:model-value="selectedAssigneeList(item)"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
 						:loading="userSearchLoading"
 						:search-results="foundUsers"
 						label="name"
 						:multiple="true"
-						:disabled="isCreating"
+						:disabled="isSaving"
+						@update:model-value="users => setAssignee(item, (users as IUser[])[0] ?? null)"
 						@search="findUser"
 					>
 						<template #tag="{item: assignee}">
@@ -45,9 +50,9 @@
 									:user="(assignee as IUser)"
 								/>
 								<BaseButton
-									v-if="!isCreating"
+									v-if="!isSaving"
 									class="remove-assignee"
-									@click="() => removeAssigneeFromRow(item, assignee as IUser)"
+									@click="() => setAssignee(item, null)"
 								>
 									<Icon icon="times" />
 								</BaseButton>
@@ -69,15 +74,16 @@
 						class="input subtask-weight"
 						min="0"
 						max="100"
-						:disabled="isCreating"
+						:disabled="isSaving"
 						@keydown.enter.prevent="addRow(index)"
+						@blur="persist"
 					>
 					<span class="weight-sign">%</span>
 				</div>
 				<BaseButton
-					v-if="subtasks.length > 1"
+					v-if="items.length > 1"
 					class="remove-row"
-					:disabled="isCreating"
+					:disabled="isSaving"
 					@click="removeRow(index)"
 				>
 					<Icon icon="times" />
@@ -87,8 +93,8 @@
 		<div class="list-controls">
 			<BaseButton
 				class="add-row-button"
-				:disabled="isCreating || totalWeight >= 100"
-				@click="addRow(subtasks.length - 1)"
+				:disabled="isSaving"
+				@click="addRow(items.length - 1)"
 			>
 				<Icon icon="plus" />
 				{{ $t('task.decompose.addRow') }}
@@ -112,10 +118,10 @@
 		</div>
 		<div class="actions">
 			<XButton
-				:loading="isCreating"
-				:disabled="!canCreate"
+				:loading="isSaving"
+				:disabled="!canSave"
 				icon="project-diagram"
-				@click="createSubtasks"
+				@click="persist"
 			>
 				{{ $t('task.decompose.create') }}
 			</XButton>
@@ -136,12 +142,9 @@ import {useI18n} from 'vue-i18n'
 
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
-import TaskRelationService from '@/services/taskRelation'
-import TaskRelationModel from '@/models/taskRelation'
 import ProjectUserService from '@/services/projectUsers'
-import {RELATION_KIND} from '@/types/IRelationKind'
 
-import type {ITask} from '@/modelTypes/ITask'
+import type {ITask, ITaskChecklistItem} from '@/modelTypes/ITask'
 import type {IUser} from '@/modelTypes/IUser'
 
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -149,208 +152,200 @@ import Multiselect from '@/components/input/Multiselect.vue'
 import User from '@/components/misc/User.vue'
 import {getDisplayName} from '@/models/user'
 import {success} from '@/message'
-import {useTaskStore} from '@/stores/tasks'
 
-interface SubtaskRow {
-	title: string
-	weight: number
-	assignees: IUser[]
-	existingTaskId?: number
-	done?: boolean
+interface ChecklistRow extends ITaskChecklistItem {
+	assignee?: IUser | null
 }
-
-const WEIGHT_REGEX = /<!-- decompose-weight:(\d+) -->/
 
 const props = defineProps<{
 	taskId: ITask['id'],
 	projectId: ITask['projectId'],
-	existingSubtasks?: ITask[],
 	parentTask?: ITask,
 }>()
 
 const emit = defineEmits<{
-	'created': [tasks: ITask[]],
-	'relationRemoved': [taskId: number],
+	'updated': [items: ITaskChecklistItem[]],
 }>()
 
 const {t} = useI18n({useScope: 'global'})
-const taskStore = useTaskStore()
 
-const subtasks = reactive<SubtaskRow[]>([
-	{title: '', weight: 100, assignees: []},
-])
-
-// Fetch full task data for subtask rows missing assignees (fallback when API
-// does not include assignees in the related-tasks response).
-async function loadMissingAssignees() {
-	const taskService = new TaskService()
-	for (const row of subtasks) {
-		if (row.existingTaskId && row.assignees.length === 0) {
-			try {
-				const full = await taskService.get({id: row.existingTaskId})
-				if (full.assignees && full.assignees.length > 0) {
-					row.assignees = full.assignees.map((u: IUser) => ({...u, name: getDisplayName(u)}))
-				}
-			} catch {
-				// silently skip – assignees won't be pre-filled
-			}
-		}
+function makeRow(overrides: Partial<ChecklistRow> = {}): ChecklistRow {
+	return {
+		id: overrides.id ?? crypto.randomUUID(),
+		title: overrides.title ?? '',
+		weight: overrides.weight ?? 0,
+		done: overrides.done ?? false,
+		assigneeId: overrides.assigneeId ?? 0,
+		position: overrides.position ?? 0,
+		assignee: overrides.assignee ?? null,
 	}
 }
 
-// Load existing subtasks into the form and sync when Related Tasks changes
-watch(
-	() => props.existingSubtasks,
-	(existing) => {
-		const existingIds = new Set((existing || []).map(s => s.id))
-
-		// Remove rows whose existing task was deleted from Related Tasks
-		for (let i = subtasks.length - 1; i >= 0; i--) {
-			if (subtasks[i].existingTaskId && !existingIds.has(subtasks[i].existingTaskId!)) {
-				subtasks.splice(i, 1)
-			}
-		}
-
-		if (!existing || existing.length === 0) {
-			// If all existing removed and no new rows left, ensure at least one empty row
-			if (subtasks.length === 0) {
-				subtasks.push({title: '', weight: 100, assignees: []})
-			}
-			return
-		}
-
-		// Add/update existing subtasks that aren't already in the list
-		const currentExistingIds = new Set(
-			subtasks.filter(s => s.existingTaskId).map(s => s.existingTaskId),
-		)
-
-		let needsAssigneeLoad = false
-
-		for (const sub of existing) {
-			if (currentExistingIds.has(sub.id)) {
-				// Update done status and assignees for existing rows
-				const row = subtasks.find(s => s.existingTaskId === sub.id)
-				if (row) {
-					row.done = sub.done
-					// Sync assignees if the API now provides them but the row is empty
-					if (row.assignees.length === 0 && sub.assignees && sub.assignees.length > 0) {
-						row.assignees = sub.assignees.map((u: IUser) => ({...u, name: getDisplayName(u)}))
-					}
-				}
-				continue
-			}
-
-			const weightMatch = WEIGHT_REGEX.exec(sub.description || '')
-			const weight = weightMatch ? parseInt(weightMatch[1], 10) : 0
-			const assignees: IUser[] = (sub.assignees || []).map((u: IUser) => ({...u, name: getDisplayName(u)}))
-
-			if (assignees.length === 0) {
-				needsAssigneeLoad = true
-			}
-
-			// Insert before the last empty row (if any)
-			const insertAt = subtasks.length > 0 && !subtasks[subtasks.length - 1].existingTaskId && subtasks[subtasks.length - 1].title === ''
-				? subtasks.length - 1
-				: subtasks.length
-
-			subtasks.splice(insertAt, 0, {
-				title: sub.title,
-				weight,
-				assignees,
-				existingTaskId: sub.id,
-				done: sub.done,
-			})
-		}
-
-		// Recalculate weight of empty new rows so total doesn't exceed 100
-		const usedWeight = subtasks
-			.filter(s => s.existingTaskId || s.title.trim() !== '')
-			.reduce((sum, r) => sum + r.weight, 0)
-		const remaining = Math.max(0, 100 - usedWeight)
-
-		// Ensure there's at least one empty row for adding new subtasks
-		const hasEmptyNew = subtasks.some(s => !s.existingTaskId && s.title === '')
-		if (!hasEmptyNew) {
-			subtasks.push({title: '', weight: remaining, assignees: []})
-		} else {
-			for (const s of subtasks) {
-				if (!s.existingTaskId && s.title === '') {
-					s.weight = remaining
-				}
-			}
-		}
-
-		// If any subtask rows have no assignees, fetch them individually
-		if (needsAssigneeLoad) {
-			loadMissingAssignees()
-		}
-	},
-	{immediate: true},
-)
-
+const items = reactive<ChecklistRow[]>([])
+const isSaving = ref(false)
+const errorMessage = ref('')
 const inputRefs = ref<Record<number, HTMLInputElement | null>>({})
 
 function setInputRef(index: number, el: HTMLInputElement | Element | ComponentPublicInstance | null) {
 	inputRefs.value[index] = el as HTMLInputElement | null
 }
 
-const isCreating = ref(false)
-const createdCount = ref(0)
-const errorMessage = ref('')
+// Load initial state from the parent task.
+watch(
+	() => props.parentTask?.checklistItems,
+	async (existing) => {
+		items.splice(0, items.length)
+		const list = Array.isArray(existing) ? existing : []
+		for (const it of list) {
+			items.push(makeRow({
+				id: it.id,
+				title: it.title,
+				weight: it.weight,
+				done: it.done,
+				assigneeId: it.assigneeId,
+				position: it.position,
+			}))
+		}
+		// Ensure at least one empty row so the user can start editing
+		if (items.length === 0) {
+			items.push(makeRow())
+		}
+		await resolveAssignees()
+	},
+	{immediate: true, deep: true},
+)
 
 // User search
 const projectUserService = shallowReactive(new ProjectUserService())
 const userSearchLoading = computed(() => projectUserService.loading)
 const foundUsers = ref<IUser[]>([])
+const assigneeCache = reactive<Record<number, IUser>>({})
 
 async function findUser(query: string) {
 	const response = await projectUserService.getAll({projectId: props.projectId}, {s: query}) as IUser[]
 	foundUsers.value = response.map(u => {
 		u.name = getDisplayName(u)
+		assigneeCache[u.id] = u
 		return u
 	})
 }
 
-const totalWeight = computed(() => {
-	return subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
-})
+async function resolveAssignees() {
+	// Fetch every user we don't already have in the cache.
+	const needed = items
+		.filter(i => i.assigneeId > 0 && !assigneeCache[i.assigneeId])
+		.map(i => i.assigneeId)
+	if (needed.length === 0) {
+		for (const row of items) {
+			row.assignee = row.assigneeId ? assigneeCache[row.assigneeId] || null : null
+		}
+		return
+	}
 
-const canCreate = computed(() => {
-	const hasNewSubtasks = subtasks.some(item => item.title.trim().length > 0 && !item.existingTaskId)
-	const hasExistingSubtasks = subtasks.some(item => item.existingTaskId)
-	return (hasNewSubtasks || hasExistingSubtasks) && totalWeight.value <= 100
-})
+	try {
+		const response = await projectUserService.getAll({projectId: props.projectId}, {}) as IUser[]
+		for (const u of response) {
+			u.name = getDisplayName(u)
+			assigneeCache[u.id] = u
+		}
+	} catch {
+		// silently ignore — the assignee just won't be displayed
+	}
 
-function removeAssigneeFromRow(row: SubtaskRow, user: IUser) {
-	row.assignees = row.assignees.filter(a => a.id !== user.id)
+	for (const row of items) {
+		row.assignee = row.assigneeId ? assigneeCache[row.assigneeId] || null : null
+	}
 }
 
+function selectedAssigneeList(item: ChecklistRow): IUser[] {
+	if (!item.assigneeId) {
+		return []
+	}
+	const cached = assigneeCache[item.assigneeId]
+	if (cached) {
+		return [cached]
+	}
+	return item.assignee ? [item.assignee] : []
+}
+
+function setAssignee(item: ChecklistRow, user: IUser | null) {
+	if (!user) {
+		item.assigneeId = 0
+		item.assignee = null
+	} else {
+		item.assigneeId = user.id
+		item.assignee = user
+		assigneeCache[user.id] = user
+	}
+	persist()
+}
+
+const totalWeight = computed(() => {
+	return items.reduce((sum, item) => sum + (Number(item.weight) || 0), 0)
+})
+
+const canSave = computed(() => {
+	return items.some(item => item.title.trim().length > 0)
+})
+
 function addRow(afterIndex: number) {
-	const currentTotal = subtasks.reduce((sum, item) => sum + (item.weight || 0), 0)
-	const remaining = Math.max(0, 100 - currentTotal)
-	subtasks.splice(afterIndex + 1, 0, {title: '', weight: remaining, assignees: []})
+	items.splice(afterIndex + 1, 0, makeRow())
 	nextTick(() => {
 		inputRefs.value[afterIndex + 1]?.focus()
 	})
 }
 
-async function removeRow(index: number) {
-	if (subtasks.length <= 1) return
+function removeRow(index: number) {
+	if (items.length <= 1) return
+	items.splice(index, 1)
+	persist()
+}
 
-	const row = subtasks[index]
+function toggleDone(item: ChecklistRow) {
+	item.done = !item.done
+	persist()
+}
 
-	// If this is an existing subtask, delete the relation
-	if (row.existingTaskId) {
-		const taskRelationService = new TaskRelationService()
-		await taskRelationService.delete(new TaskRelationModel({
-			taskId: props.taskId,
-			otherTaskId: row.existingTaskId,
-			relationKind: RELATION_KIND.SUBTASK,
+function cleanItems(): ITaskChecklistItem[] {
+	return items
+		.filter(i => i.title.trim().length > 0)
+		.map((i, idx) => ({
+			id: i.id,
+			title: i.title.trim(),
+			weight: Number(i.weight) || 0,
+			done: i.done,
+			assigneeId: i.assigneeId,
+			position: idx,
 		}))
-		emit('relationRemoved', row.existingTaskId)
-	}
+}
 
-	subtasks.splice(index, 1)
+async function persist() {
+	if (isSaving.value) {
+		return
+	}
+	isSaving.value = true
+	errorMessage.value = ''
+
+	const payload = cleanItems()
+
+	try {
+		const taskService = new TaskService()
+		const updated = await taskService.update(new TaskModel({
+			id: props.taskId,
+			title: props.parentTask?.title,
+			projectId: props.projectId,
+			checklistItems: payload,
+		}))
+		emit('updated', updated.checklistItems || [])
+		if (payload.length > 0) {
+			success({message: t('task.decompose.success', {count: payload.length})})
+		}
+	} catch (e) {
+		errorMessage.value = t('task.decompose.error')
+		throw e
+	} finally {
+		isSaving.value = false
+	}
 }
 
 function focus() {
@@ -358,107 +353,6 @@ function focus() {
 }
 
 defineExpose({focus})
-
-async function createSubtasks() {
-	const newSubtasks = subtasks.filter(item => item.title.trim().length > 0 && !item.existingTaskId)
-	const existingSubtasks = subtasks.filter(item => item.existingTaskId)
-
-	if (newSubtasks.length === 0 && existingSubtasks.length === 0) {
-		return
-	}
-
-	if (isCreating.value || totalWeight.value > 100) {
-		return
-	}
-
-	isCreating.value = true
-	errorMessage.value = ''
-	createdCount.value = 0
-
-	const taskService = new TaskService()
-	const taskRelationService = new TaskRelationService()
-	const createdTasks: ITask[] = []
-
-	try {
-		// Update existing subtasks (title, weight, assignee)
-		for (const item of existingSubtasks) {
-			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
-
-			await taskService.update(new TaskModel({
-				id: item.existingTaskId,
-				title: item.title.trim(),
-				description,
-				projectId: props.projectId,
-			}))
-
-			// Handle assignee changes for existing subtasks
-			const originalTask = props.existingSubtasks?.find(s => s.id === item.existingTaskId)
-			const originalIds = new Set((originalTask?.assignees || []).map(u => u.id))
-			const newIds = new Set(item.assignees.map(u => u.id))
-
-			// Remove assignees that were removed from the form
-			for (const user of (originalTask?.assignees || [])) {
-				if (!newIds.has(user.id)) {
-					await taskStore.removeAssignee({user, taskId: item.existingTaskId!})
-				}
-			}
-			// Add assignees that were added in the form
-			for (const user of item.assignees) {
-				if (!originalIds.has(user.id)) {
-					await taskStore.addAssignee({user, taskId: item.existingTaskId!})
-				}
-			}
-		}
-
-		// Create new subtasks – inherit dates from parent so they appear in the calendar
-		const parentDates: Partial<ITask> = {}
-		if (props.parentTask) {
-			if (props.parentTask.dueDate) parentDates.dueDate = props.parentTask.dueDate
-			if (props.parentTask.startDate) parentDates.startDate = props.parentTask.startDate
-			if (props.parentTask.endDate) parentDates.endDate = props.parentTask.endDate
-		}
-
-		for (const item of newSubtasks) {
-			const description = `<!-- decompose-weight:${item.weight} -->\n${t('task.decompose.weightLabel', {weight: item.weight})}`
-
-			const newTask = await taskService.create(new TaskModel({
-				title: item.title.trim(),
-				description,
-				projectId: props.projectId,
-				...parentDates,
-			}))
-
-			await taskRelationService.create(new TaskRelationModel({
-				taskId: props.taskId,
-				otherTaskId: newTask.id,
-				relationKind: RELATION_KIND.SUBTASK,
-			}))
-
-			// Assign users if selected
-			for (const user of item.assignees) {
-				await taskStore.addAssignee({user, taskId: newTask.id})
-			}
-
-			// Mark the row as existing so the watch won't duplicate it
-			item.existingTaskId = newTask.id
-			createdTasks.push(newTask)
-		}
-
-		createdCount.value = createdTasks.length
-		emit('created', createdTasks)
-
-		if (createdTasks.length > 0) {
-			success({message: t('task.decompose.success', {count: createdTasks.length})})
-		} else {
-			success({message: t('task.decompose.updated')})
-		}
-	} catch (e) {
-		errorMessage.value = t('task.decompose.error')
-		throw e
-	} finally {
-		isCreating.value = false
-	}
-}
 </script>
 
 <style lang="scss" scoped>
@@ -492,6 +386,17 @@ async function createSubtasks() {
 		text-align: end;
 	}
 
+	.done-toggle {
+		color: var(--grey-500);
+		padding: 0.25rem;
+		flex-shrink: 0;
+		line-height: 1;
+
+		&.is-done {
+			color: var(--success);
+		}
+	}
+
 	.subtask-title {
 		flex: 1;
 		min-inline-size: 0;
@@ -501,13 +406,6 @@ async function createSubtasks() {
 			color: var(--grey-400);
 		}
 	}
-
-	.done-icon {
-		color: var(--success);
-		font-size: 0.8rem;
-		flex-shrink: 0;
-	}
-
 
 	.assignee-wrapper {
 		flex-shrink: 0;
