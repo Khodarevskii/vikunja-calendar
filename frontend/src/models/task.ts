@@ -77,6 +77,7 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	parentTaskId: ITask['id'] = 0
 	hexColor = ''
 	percentDone = 0
+	subtaskWeight = 0
 	checklistItems: ITaskChecklistItem[] = []
 	relatedTasks:  Partial<Record<IRelationKind, ITask[]>> = {}
 	attachments: IAttachment[] = []
@@ -127,6 +128,8 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 		if (this.hexColor !== '' && this.hexColor.substring(0, 1) !== '#') {
 			this.hexColor = '#' + this.hexColor
 		}
+
+		this.subtaskWeight = Number(this.subtaskWeight) || 0
 
 		// Checklist items are a plain JSON array — make sure it's always defined
 		// so the UI doesn't have to null-check every access.

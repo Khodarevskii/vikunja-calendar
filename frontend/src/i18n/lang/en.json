@@ -997,7 +997,9 @@
         "follows": "Follows | Follows",
         "copiedfrom": "Copied From | Copied From",
         "copiedto": "Copied To | Copied To"
-      }
+      },
+      "subtaskWeight": "Weight",
+      "subtaskWeightTooltip": "How much this subtask contributes to the parent task's progress. Leave empty for automatic distribution."
     },
     "decompose": {
       "action": "Decompose",

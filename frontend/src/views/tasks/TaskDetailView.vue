@@ -404,8 +404,9 @@
 							:project-id="task.projectId"
 							:show-no-relations-notice="true"
 							:task-id="taskId"
-							@subtask-done-toggled="recalcPercentDone"
-							@relation-removed="onRelationRemoved"
+							@subtaskDoneToggled="recalcPercentDone"
+							@subtaskWeightChanged="recalcPercentDone"
+							@relationRemoved="onRelationRemoved"
 						/>
 					</div>
 
@@ -457,7 +458,7 @@
 						:task-id="taskId"
 						:project-id="task.projectId"
 						:initial-comments="task.comments"
-						@comment-deleted="onCommentDeleted"
+						@commentDeleted="onCommentDeleted"
 					/>
 
 					<!-- Marker element for scroll-to-bottom button visibility -->
@@ -1269,11 +1270,13 @@ async function removeRepeatAfter() {
 
 // Recalculate the percent_done of this task based on its real subtasks and
 // its embedded checklist items. Kept in sync with the backend implementation
-// in pkg/models/task_progress.go — when both real subtasks and checklist
-// items exist, each item contributes an equal share of 100% regardless of
-// weight. Otherwise, weights apply: weighted items claim exactly that
-// percentage, and unweighted items split whatever remains out of 100%. If the
-// sum of weights exceeds 100%, every item is given an equal share instead.
+// in pkg/models/task_progress.go:
+//   - Both real subtasks (via subtaskWeight) and checklist items (via weight)
+//     may carry an optional weight.
+//   - Items with weight > 0 contribute exactly that percentage.
+//   - Items without a weight split whatever remains of 100% equally.
+//   - If the sum of set weights exceeds 100, every item is given an equal
+//     share instead.
 async function recalcPercentDone() {
 	// Reload the task so we have the freshest checklist and subtasks state.
 	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
@@ -1287,45 +1290,37 @@ async function recalcPercentDone() {
 		return
 	}
 
-	let totalWeight = 0
-	let doneWeight = 0
-
-	if (subtasks.length > 0 && checklist.length > 0) {
-		// Both present — split equally, weights ignored.
-		const total = subtasks.length + checklist.length
-		const doneCount = subtasks.filter(s => s.done).length + checklist.filter(c => c.done).length
-		totalWeight = total
-		doneWeight = doneCount
-	} else if (subtasks.length > 0) {
-		// Only real subtasks — split equally.
-		totalWeight = subtasks.length
-		doneWeight = subtasks.filter(s => s.done).length
-	} else {
-		// Only checklist items — apply weight rules.
-		const weightSum = checklist.reduce((sum, c) => sum + (c.weight || 0), 0)
-		if (weightSum > 100) {
-			totalWeight = checklist.length
-			doneWeight = checklist.filter(c => c.done).length
-		} else {
-			const weighted = checklist.filter(c => (c.weight || 0) > 0)
-			const unweighted = checklist.filter(c => !c.weight)
-			const autoShare = unweighted.length > 0
-				? (100 - weightSum) / unweighted.length
-				: 0
-			let done = 0
-			for (const c of weighted) {
-				if (c.done) done += c.weight
-			}
-			for (const c of unweighted) {
-				if (c.done) done += autoShare
-			}
-			totalWeight = 100
-			doneWeight = done
-		}
+	type Item = {weight: number, done: boolean}
+	const items: Item[] = []
+	for (const st of subtasks) {
+		items.push({weight: Number(st.subtaskWeight) || 0, done: !!st.done})
+	}
+	for (const c of checklist) {
+		items.push({weight: Number(c.weight) || 0, done: !!c.done})
 	}
 
-	// percentDone is 0-1 in Vikunja (0.5 = 50%), rounded to nearest 0.01
-	const newPercent = Math.round((doneWeight / totalWeight) * 100) / 100
+	const weightSum = items.reduce((sum, it) => sum + it.weight, 0)
+
+	let newPercent: number
+	if (weightSum > 100) {
+		// Overflow → split equally, weights ignored.
+		const doneCount = items.filter(it => it.done).length
+		newPercent = Math.round((doneCount / items.length) * 100) / 100
+	} else {
+		const weighted = items.filter(it => it.weight > 0)
+		const unweighted = items.filter(it => it.weight === 0)
+		const autoShare = unweighted.length > 0
+			? (100 - weightSum) / unweighted.length
+			: 0
+		let done = 0
+		for (const it of weighted) {
+			if (it.done) done += it.weight
+		}
+		for (const it of unweighted) {
+			if (it.done) done += autoShare
+		}
+		newPercent = Math.round(done) / 100
+	}
 
 	if (newPercent !== task.value.percentDone) {
 		await saveTask({
