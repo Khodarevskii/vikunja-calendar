@@ -284,7 +284,8 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 
 	now := time.Now()
 	for _, child := range children {
-		if child.Done != done {
+		stateChanged := child.Done != done
+		if stateChanged {
 			if done {
 				_, err = s.ID(child.ID).Cols("done", "done_at", "percent_done").Update(&Task{
 					Done:        true,
@@ -307,6 +308,17 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 		// might not be.
 		if err := markChildrenDone(s, child.ID, done, visited); err != nil {
 			return err
+		}
+
+		// After the child (and its descendants) have been updated,
+		// propagate the change upward so that every parent of this child
+		// recalculates its percent_done. This is safe from infinite loops
+		// because recalculateTaskPercentDone uses a changed-guard and the
+		// visited set prevents re-entering children we already processed.
+		if stateChanged {
+			if err := recalculateRelatedTasksPercentDone(s, child.ID); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -1008,6 +1008,10 @@ onMounted(async () => {
 const taskService = shallowReactive(new TaskService())
 const taskCommentService = shallowReactive(new TaskCommentService())
 
+// Relation kinds that contribute to percent_done (mirroring the backend's
+// progressRelationKinds in pkg/models/task_progress.go).
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+
 // load task
 watch(
 	() => props.taskId,
@@ -1046,6 +1050,16 @@ watch(
 			visible.value = true
 
 			setActiveFields()
+
+			// If the task has progress-contributing items (subtasks, related
+			// tasks, or checklist items), recalculate percent_done to make sure
+			// the displayed value matches the current state of all children.
+			const hasProgressItems = PROGRESS_RELATION_KINDS.some(
+				k => (task.value.relatedTasks?.[k] || []).length > 0,
+			) || (task.value.checklistItems || []).length > 0
+			if (hasProgressItems) {
+				recalcPercentDone()
+			}
 		}
 	}, {immediate: true})
 
@@ -1103,6 +1117,8 @@ function setActiveFields() {
 	activeFields.endDate = task.value.endDate !== null
 	activeFields.labels = task.value.labels.length > 0
 	activeFields.percentDone = task.value.percentDone > 0
+		|| PROGRESS_RELATION_KINDS.some(k => (task.value.relatedTasks?.[k] || []).length > 0)
+		|| (task.value.checklistItems || []).length > 0
 	activeFields.priority = task.value.priority !== PRIORITIES.UNSET
 	activeFields.relatedTasks = Object.keys(task.value.relatedTasks).length > 0
 	activeFields.reminders = task.value.reminders.length > 0
@@ -1275,10 +1291,6 @@ async function removeRepeatAfter() {
 	task.value.repeatMode = TASK_REPEAT_MODES.REPEAT_MODE_DEFAULT
 	await saveTask()
 }
-
-// Relation kinds that contribute to percent_done (mirroring the backend's
-// progressRelationKinds in pkg/models/task_progress.go).
-const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
 
 // Recalculate the percent_done of this task based on its related tasks
 // (subtasks + related) and embedded checklist items.
