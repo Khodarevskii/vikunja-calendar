@@ -32,6 +32,26 @@ var progressRelationKinds = []interface{}{
 	RelationKindRelated,
 }
 
+// isProgressRelationKind returns true if the given kind contributes to
+// percent_done calculations.
+func isProgressRelationKind(kind RelationKind) bool {
+	for _, k := range progressRelationKinds {
+		if k == kind {
+			return true
+		}
+	}
+	// Also check the inverse: if someone creates a "parenttask" relation,
+	// the real parent (OtherTaskID) needs recalculation because the forward
+	// direction (subtask) is progress-contributing.
+	inverse := getInverseRelation(kind)
+	for _, k := range progressRelationKinds {
+		if k == inverse {
+			return true
+		}
+	}
+	return false
+}
+
 // progressItem abstracts a single contributor (real subtask or checklist item)
 // to the percent_done calculation of a parent task.
 type progressItem struct {

@@ -244,6 +244,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
 	'subtaskDoneToggled': [task: ITask],
 	'subtaskWeightChanged': [task: ITask],
+	'relationAdded': [relationKind: IRelationKind, otherTaskId: number],
 	'relationRemoved': [relationKind: IRelationKind, otherTaskId: number],
 }>()
 
@@ -347,13 +348,16 @@ async function addTaskRelation() {
 		return
 	}
 
+	const addedKind = newTaskRelation.kind
+	const addedTaskId = newTaskRelation.task.id
+
 	await taskRelationService.create(new TaskRelationModel({
 		taskId: props.taskId,
-		otherTaskId: newTaskRelation.task.id,
-		relationKind: newTaskRelation.kind,
+		otherTaskId: addedTaskId,
+		relationKind: addedKind,
 	}))
-	relatedTasks.value[newTaskRelation.kind] = [
-		...(relatedTasks.value[newTaskRelation.kind] || []),
+	relatedTasks.value[addedKind] = [
+		...(relatedTasks.value[addedKind] || []),
 		newTaskRelation.task,
 	]
 	newTaskRelation.task = new TaskModel()
@@ -363,6 +367,8 @@ async function addTaskRelation() {
 	setTimeout(() => {
 		saved.value = false
 	}, 2000)
+
+	emit('relationAdded', addedKind, addedTaskId)
 }
 
 const relationToDelete = ref<Partial<ITaskRelation>>()
