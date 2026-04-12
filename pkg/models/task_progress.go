@@ -18,9 +18,19 @@ package models
 
 import (
 	"math"
+	"time"
 
 	"xorm.io/xorm"
 )
+
+// progressRelationKinds lists the relation kinds that contribute to a task's
+// percent_done when they appear as outgoing relations (task_id → other_task_id).
+// Subtasks are the classic case; "related" tasks also count now.
+// Stored as []interface{} so we can pass it directly to xorm's In() method.
+var progressRelationKinds = []interface{}{
+	RelationKindSubtask,
+	RelationKindRelated,
+}
 
 // progressItem abstracts a single contributor (real subtask or checklist item)
 // to the percent_done calculation of a parent task.
@@ -83,18 +93,22 @@ func calculateWeightedProgress(items []progressItem) float64 {
 }
 
 // recalculateTaskPercentDone recomputes the percent_done field for the task
-// with the given id based on its real subtasks (task relations with kind
-// "subtask") and its embedded checklist items.
+// with the given id based on its related tasks (subtasks and "related" tasks)
+// and its embedded checklist items.
 //
-// Both real subtasks (via Task.SubtaskWeight) and checklist items (via
+// Both related tasks (via Task.SubtaskWeight) and checklist items (via
 // TaskChecklistItem.Weight) may carry an optional weight. The weight rules
 // from calculateWeightedProgress are applied to the combined list:
 //
 //   - Items with Weight > 0 contribute exactly that percentage.
 //   - Unweighted items (Weight == 0) split whatever is left of 100% equally.
-//     For example: if a parent has three subtasks and one has a weight of 10,
-//     the remaining two split 90% → 45% each.
+//     For example: if a parent has three related tasks and one has a weight
+//     of 10, the remaining two split 90% → 45% each.
 //   - If the sum of set weights exceeds 100, every item gets an equal share.
+//
+// When the computed percent_done reaches 1.0 the parent task is automatically
+// marked as done. If it drops below 1.0 and the task was previously at 100%
+// (auto-done), it is marked as not done again.
 //
 // The task's percent_done is only updated if the computed value differs from
 // what is already stored.
@@ -104,22 +118,24 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		return err
 	}
 
-	// Collect real subtasks via task_relations.
+	// Collect related tasks via task_relations for all progress-contributing
+	// relation kinds (subtask, related).
 	relations := []*TaskRelation{}
-	err = s.Where("task_id = ? AND relation_kind = ?", parentID, RelationKindSubtask).
+	err = s.Where("task_id = ?", parentID).
+		In("relation_kind", progressRelationKinds).
 		Find(&relations)
 	if err != nil {
 		return err
 	}
 
-	subtaskIDs := make([]int64, 0, len(relations))
+	relatedIDs := make([]int64, 0, len(relations))
 	for _, r := range relations {
-		subtaskIDs = append(subtaskIDs, r.OtherTaskID)
+		relatedIDs = append(relatedIDs, r.OtherTaskID)
 	}
 
-	subtasks := []*Task{}
-	if len(subtaskIDs) > 0 {
-		err = s.In("id", subtaskIDs).Find(&subtasks)
+	relatedTasks := []*Task{}
+	if len(relatedIDs) > 0 {
+		err = s.In("id", relatedIDs).Find(&relatedTasks)
 		if err != nil {
 			return err
 		}
@@ -128,13 +144,13 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	checklistItems := parent.ChecklistItems
 
 	// Nothing to compute from.
-	if len(subtasks) == 0 && len(checklistItems) == 0 {
+	if len(relatedTasks) == 0 && len(checklistItems) == 0 {
 		return nil
 	}
 
-	items := make([]progressItem, 0, len(subtasks)+len(checklistItems))
-	for _, st := range subtasks {
-		items = append(items, progressItem{Weight: st.SubtaskWeight, Done: st.Done})
+	items := make([]progressItem, 0, len(relatedTasks)+len(checklistItems))
+	for _, rt := range relatedTasks {
+		items = append(items, progressItem{Weight: rt.SubtaskWeight, Done: rt.Done})
 	}
 	for _, ci := range checklistItems {
 		items = append(items, progressItem{Weight: ci.Weight, Done: ci.Done})
@@ -142,20 +158,54 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	newPercent := calculateWeightedProgress(items)
 
-	if math.Abs(newPercent-parent.PercentDone) < 0.001 {
+	changed := math.Abs(newPercent-parent.PercentDone) >= 0.001
+
+	if !changed {
 		return nil
 	}
 
 	_, err = s.ID(parent.ID).Cols("percent_done").Update(&Task{PercentDone: newPercent})
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Auto-done: when progress reaches 100%, mark the task as done.
+	// When it drops below 100%, mark it as not done (only if the task was
+	// previously auto-completed at 100%).
+	if newPercent >= 1.0 && !parent.Done {
+		now := time.Now()
+		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
+			Done:   true,
+			DoneAt: now,
+		})
+		if err != nil {
+			return err
+		}
+	} else if newPercent < 1.0 && parent.Done && parent.PercentDone >= 1.0 {
+		// The parent was done at 100% — undo it since progress dropped.
+		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
+			Done:   false,
+			DoneAt: time.Time{},
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-// recalculateParentTasksPercentDone finds all real parent tasks of the given
-// subtask and updates their percent_done. It is a no-op if the task has no
-// parents.
-func recalculateParentTasksPercentDone(s *xorm.Session, subtaskID int64) error {
+// recalculateRelatedTasksPercentDone finds all tasks that reference the given
+// task via a progress-contributing relation (subtask or related) and
+// recomputes their percent_done. It is a no-op if the task has no such
+// relations.
+func recalculateRelatedTasksPercentDone(s *xorm.Session, taskID int64) error {
+	// Find every task that has *this* task as "other" side with a
+	// progress-contributing kind. That means the found task_id is a "parent"
+	// whose percent_done depends on taskID.
 	parents := []*TaskRelation{}
-	err := s.Where("other_task_id = ? AND relation_kind = ?", subtaskID, RelationKindSubtask).
+	err := s.Where("other_task_id = ?", taskID).
+		In("relation_kind", progressRelationKinds).
 		Find(&parents)
 	if err != nil {
 		return err

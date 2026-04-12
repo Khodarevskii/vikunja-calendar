@@ -1469,11 +1469,11 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	}
 
 	// If this task's "done" state or subtask weight changed, propagate the
-	// change to any real parent task that might have it as a subtask so the
-	// parent's percent_done stays in sync.
+	// change to any task that references it via a progress-contributing
+	// relation (subtask, related) so the parent's percent_done stays in sync.
 	if updateDoneAt || t.SubtaskWeight != originalSubtaskWeight {
-		if err := recalculateParentTasksPercentDone(s, t.ID); err != nil {
-			log.Errorf("Could not recalculate parent percent_done for task %d: %s", t.ID, err)
+		if err := recalculateRelatedTasksPercentDone(s, t.ID); err != nil {
+			log.Errorf("Could not recalculate related tasks percent_done for task %d: %s", t.ID, err)
 		}
 	}
 
