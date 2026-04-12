@@ -119,7 +119,7 @@
 					:key="task.id"
 					class="task"
 				>
-					<div class="is-flex is-align-items-center">
+					<div class="is-flex is-align-items-center task-main">
 						<FancyCheckbox
 							v-model="task.done"
 							class="task-done-checkbox"
@@ -143,16 +143,39 @@
 							{{ task.title }}
 						</RouterLink>
 					</div>
-					<BaseButton
-						v-if="editEnabled"
-						class="remove"
-						@click="setRelationToDelete({
-							relationKind: rts.kind,
-							otherTaskId: task.id
-						})"
-					>
-						<Icon icon="trash-alt" />
-					</BaseButton>
+					<div class="task-actions">
+						<div
+							v-if="rts.kind === 'subtask'"
+							v-tooltip="$t('task.relation.subtaskWeightTooltip')"
+							class="subtask-weight-wrapper"
+						>
+							<label class="subtask-weight-label">
+								{{ $t('task.relation.subtaskWeight') }}
+							</label>
+							<input
+								type="number"
+								class="input subtask-weight-input"
+								min="0"
+								max="100"
+								:value="task.subtaskWeight || ''"
+								:disabled="!editEnabled"
+								placeholder="auto"
+								@change="updateSubtaskWeight(task, ($event.target as HTMLInputElement).value)"
+								@keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+							>
+							<span class="subtask-weight-sign">%</span>
+						</div>
+						<BaseButton
+							v-if="editEnabled"
+							class="remove"
+							@click="setRelationToDelete({
+								relationKind: rts.kind,
+								otherTaskId: task.id
+							})"
+						>
+							<Icon icon="trash-alt" />
+						</BaseButton>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -220,6 +243,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
 	'subtaskDoneToggled': [task: ITask],
+	'subtaskWeightChanged': [task: ITask],
 	'relationRemoved': [relationKind: IRelationKind, otherTaskId: number],
 }>()
 
@@ -395,6 +419,32 @@ async function toggleTaskDone(task: ITask) {
 	emit('subtaskDoneToggled', task)
 	success({message: t('task.detail.updateSuccess')})
 }
+
+async function updateSubtaskWeight(task: ITask, rawValue: string) {
+	const parsed = rawValue === '' ? 0 : Number(rawValue)
+	const weight = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+	if (weight === task.subtaskWeight) {
+		return
+	}
+
+	const updated = new TaskModel({...task, subtaskWeight: weight})
+	await taskStore.update(updated)
+
+	// Mirror the updated value into the local list so the input keeps the
+	// freshly saved value and subsequent edits compare correctly.
+	Object.entries(relatedTasks.value).some(([kind, tasks]) => {
+		return (tasks as ITask[]).some((t, key) => {
+			const found = t.id === task.id
+			if (found) {
+				relatedTasks.value[kind as IRelationKind]![key] = updated
+			}
+			return found
+		})
+	})
+
+	emit('subtaskWeightChanged', updated)
+	success({message: t('task.detail.updateSuccess')})
+}
 </script>
 
 <style lang="scss" scoped>
@@ -428,6 +478,7 @@ async function toggleTaskDone(task: ITask) {
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: space-between;
+	align-items: center;
 	padding: .75rem;
 	transition: background-color $transition;
 	border-radius: $radius;
@@ -445,6 +496,51 @@ async function toggleTaskDone(task: ITask) {
 		}
 	}
 
+}
+
+.task-main {
+	flex: 1;
+	min-inline-size: 0;
+}
+
+.task-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.subtask-weight-wrapper {
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+}
+
+.subtask-weight-label {
+	font-size: 0.75rem;
+	color: var(--grey-500);
+	margin-inline-end: 0.25rem;
+}
+
+.subtask-weight-input {
+	inline-size: 3.5rem;
+	text-align: center;
+	padding: 0.2rem 0.35rem;
+	border: 1px solid var(--border);
+	border-radius: $radius;
+	background: var(--scheme-main);
+	color: var(--text);
+	font-size: 0.85rem;
+
+	&::placeholder {
+		color: var(--grey-400);
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+}
+
+.subtask-weight-sign {
+	color: var(--grey-500);
+	font-size: 0.85rem;
 }
 
 .remove {
