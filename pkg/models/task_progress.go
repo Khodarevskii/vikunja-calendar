@@ -215,13 +215,94 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		doneChanged = true
 	}
 
-	// When the done status changed (auto-done or auto-undone), cascade
-	// upward so that grandparent tasks also recalculate their progress.
-	// The recursion is bounded because each level only fires when
-	// percent_done actually changed, and a task can only be auto-done
-	// once (the !parent.Done guard above prevents re-entry).
 	if doneChanged {
+		// When auto-done, cascade downward: mark any remaining children
+		// as done so the task tree stays consistent. This covers the case
+		// where weighted children sum to 100% but unweighted siblings are
+		// still open.
+		if newPercent >= 1.0 {
+			if err := markChildrenDone(s, parentID, true, nil); err != nil {
+				return err
+			}
+		}
+
+		// Cascade upward so that grandparent tasks also recalculate their
+		// progress. The recursion is bounded because each level only fires
+		// when percent_done actually changed, and a task can only be
+		// auto-done once (the !parent.Done guard above prevents re-entry).
 		if err := recalculateRelatedTasksPercentDone(s, parentID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// markChildrenDone recursively marks all children (subtasks and related tasks)
+// of the given task as done (or not done). It traverses the entire hierarchy
+// downward via progress-contributing relations. A visited set prevents cycles.
+//
+// When done is true each child gets Done=true, DoneAt=now, PercentDone=1.0.
+// When done is false each child gets Done=false, DoneAt=zero, PercentDone=0.
+func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int64]bool) error {
+	if visited == nil {
+		visited = make(map[int64]bool)
+	}
+	if visited[taskID] {
+		return nil
+	}
+	visited[taskID] = true
+
+	// Find outgoing progress-contributing relations (subtask, related).
+	relations := []*TaskRelation{}
+	err := s.Where("task_id = ?", taskID).
+		In("relation_kind", progressRelationKinds).
+		Find(&relations)
+	if err != nil {
+		return err
+	}
+
+	childIDs := make([]int64, 0, len(relations))
+	for _, r := range relations {
+		if !visited[r.OtherTaskID] {
+			childIDs = append(childIDs, r.OtherTaskID)
+		}
+	}
+
+	if len(childIDs) == 0 {
+		return nil
+	}
+
+	children := []*Task{}
+	err = s.In("id", childIDs).Find(&children)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	for _, child := range children {
+		if child.Done != done {
+			if done {
+				_, err = s.ID(child.ID).Cols("done", "done_at", "percent_done").Update(&Task{
+					Done:        true,
+					DoneAt:      now,
+					PercentDone: 1.0,
+				})
+			} else {
+				_, err = s.ID(child.ID).Cols("done", "done_at", "percent_done").Update(&Task{
+					Done:        false,
+					DoneAt:      time.Time{},
+					PercentDone: 0,
+				})
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		// Always recurse — a child may already be done but its own children
+		// might not be.
+		if err := markChildrenDone(s, child.ID, done, visited); err != nil {
 			return err
 		}
 	}
