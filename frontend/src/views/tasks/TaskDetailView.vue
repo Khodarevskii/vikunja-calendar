@@ -406,6 +406,7 @@
 							:task-id="taskId"
 							@subtaskDoneToggled="recalcPercentDone"
 							@subtaskWeightChanged="recalcPercentDone"
+							@relationAdded="recalcPercentDone"
 							@relationRemoved="onRelationRemoved"
 						/>
 					</div>

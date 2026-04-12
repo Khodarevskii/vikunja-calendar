@@ -256,6 +256,14 @@ func (rel *TaskRelation) Create(s *xorm.Session, a web.Auth) error {
 		return err
 	}
 
+	// When a progress-contributing relation is added, recalculate
+	// percent_done for both sides so the parent picks up the new child
+	// (and potentially auto-undoes if it was previously at 100%).
+	if isProgressRelationKind(rel.RelationKind) {
+		_ = recalculateTaskPercentDone(s, rel.TaskID)
+		_ = recalculateTaskPercentDone(s, rel.OtherTaskID)
+	}
+
 	doer, _ := user.GetFromAuth(a)
 	task, err := GetTaskByIDSimple(s, rel.TaskID)
 	if err != nil {
@@ -335,6 +343,14 @@ func (rel *TaskRelation) Delete(s *xorm.Session, a web.Auth) error {
 		Delete(&TaskRelation{})
 	if err != nil {
 		return err
+	}
+
+	// When a progress-contributing relation is removed, recalculate
+	// percent_done for both sides so the parent adjusts its progress
+	// (and potentially auto-completes if remaining children are all done).
+	if isProgressRelationKind(rel.RelationKind) {
+		_ = recalculateTaskPercentDone(s, rel.TaskID)
+		_ = recalculateTaskPercentDone(s, rel.OtherTaskID)
 	}
 
 	doer, _ := user.GetFromAuth(a)
