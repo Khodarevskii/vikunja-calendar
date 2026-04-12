@@ -145,7 +145,7 @@
 					</div>
 					<div class="task-actions">
 						<div
-							v-if="rts.kind === 'subtask'"
+							v-if="isProgressKind(rts.kind)"
 							v-tooltip="$t('task.relation.subtaskWeightTooltip')"
 							class="subtask-weight-wrapper"
 						>
@@ -244,8 +244,17 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
 	'subtaskDoneToggled': [task: ITask],
 	'subtaskWeightChanged': [task: ITask],
+	'relationAdded': [relationKind: IRelationKind, otherTaskId: number],
 	'relationRemoved': [relationKind: IRelationKind, otherTaskId: number],
 }>()
+
+// Relation kinds that contribute to a task's percent_done.
+// Mirrors backend progressRelationKinds in pkg/models/task_progress.go.
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+
+function isProgressKind(kind: IRelationKind): boolean {
+	return PROGRESS_RELATION_KINDS.includes(kind)
+}
 
 const taskStore = useTaskStore()
 const projectStore = useProjectStore()
@@ -339,13 +348,16 @@ async function addTaskRelation() {
 		return
 	}
 
+	const addedKind = newTaskRelation.kind
+	const addedTaskId = newTaskRelation.task.id
+
 	await taskRelationService.create(new TaskRelationModel({
 		taskId: props.taskId,
-		otherTaskId: newTaskRelation.task.id,
-		relationKind: newTaskRelation.kind,
+		otherTaskId: addedTaskId,
+		relationKind: addedKind,
 	}))
-	relatedTasks.value[newTaskRelation.kind] = [
-		...(relatedTasks.value[newTaskRelation.kind] || []),
+	relatedTasks.value[addedKind] = [
+		...(relatedTasks.value[addedKind] || []),
 		newTaskRelation.task,
 	]
 	newTaskRelation.task = new TaskModel()
@@ -355,6 +367,8 @@ async function addTaskRelation() {
 	setTimeout(() => {
 		saved.value = false
 	}, 2000)
+
+	emit('relationAdded', addedKind, addedTaskId)
 }
 
 const relationToDelete = ref<Partial<ITaskRelation>>()
