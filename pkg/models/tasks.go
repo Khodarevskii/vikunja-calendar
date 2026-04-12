@@ -1461,10 +1461,12 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		return err
 	}
 
-	// When a task is marked as done, cascade downward: recursively mark all
-	// its subtasks and related tasks as done too.
-	if updateDoneAt && t.Done {
-		if err := markChildrenDone(s, t.ID, true, nil); err != nil {
+	// When a task's done status changes, cascade downward: recursively
+	// mark all its subtasks and related tasks to match, then recalculate
+	// percent_done for every affected descendant so the progress chain
+	// stays consistent.
+	if updateDoneAt {
+		if err := markChildrenDone(s, t.ID, t.Done, nil); err != nil {
 			log.Errorf("Could not cascade done status to children of task %d: %s", t.ID, err)
 		}
 	}
