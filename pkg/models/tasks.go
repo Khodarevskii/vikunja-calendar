@@ -1467,7 +1467,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	// stays consistent.
 	if updateDoneAt {
 		if err := markChildrenDone(s, t.ID, t.Done, nil); err != nil {
-			log.Errorf("Could not cascade done status to children of task %d: %s", t.ID, err)
+			return err
 		}
 	}
 

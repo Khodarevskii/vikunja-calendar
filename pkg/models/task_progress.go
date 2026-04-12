@@ -142,7 +142,7 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	// relation kinds (subtask, related).
 	relations := []*TaskRelation{}
 	err = s.Where("task_id = ?", parentID).
-		In("relation_kind", progressRelationKinds).
+		In("relation_kind", progressRelationKinds...).
 		Find(&relations)
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 	// Find outgoing progress-contributing relations (subtask, related).
 	relations := []*TaskRelation{}
 	err := s.Where("task_id = ?", taskID).
-		In("relation_kind", progressRelationKinds).
+		In("relation_kind", progressRelationKinds...).
 		Find(&relations)
 	if err != nil {
 		return err
@@ -320,7 +320,7 @@ func recalculateRelatedTasksPercentDone(s *xorm.Session, taskID int64) error {
 	// whose percent_done depends on taskID.
 	parents := []*TaskRelation{}
 	err := s.Where("other_task_id = ?", taskID).
-		In("relation_kind", progressRelationKinds).
+		In("relation_kind", progressRelationKinds...).
 		Find(&parents)
 	if err != nil {
 		return err

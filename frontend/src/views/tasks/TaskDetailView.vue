@@ -1226,6 +1226,13 @@ async function toggleTaskDone() {
 		newTask,
 		toggleTaskDone,
 	)
+
+	// The backend cascades done/undone to all subtasks and related tasks.
+	// The Update API response does not include relatedTasks, so we reload
+	// the full task to refresh the RelatedTasks panel with the new states.
+	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
+	Object.assign(task.value, loaded)
+	setActiveFields()
 }
 
 async function changeProject(project: IProject | null) {
