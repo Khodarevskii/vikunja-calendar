@@ -180,18 +180,17 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	changed := math.Abs(newPercent-parent.PercentDone) >= 0.001
 
-	if !changed {
-		return nil
+	if changed {
+		_, err = s.ID(parent.ID).Cols("percent_done").Update(&Task{PercentDone: newPercent})
+		if err != nil {
+			return err
+		}
 	}
 
-	_, err = s.ID(parent.ID).Cols("percent_done").Update(&Task{PercentDone: newPercent})
-	if err != nil {
-		return err
-	}
-
-	// Auto-done: when progress reaches 100%, mark the task as done.
-	// When it drops below 100%, mark it as not done (only if the task was
-	// previously auto-completed at 100%).
+	// Auto-done / auto-undone: always check regardless of whether
+	// percent_done changed.  This ensures a task at 100% is always marked
+	// done — even if the user manually un-did it while progress stayed at
+	// 100%, or if percent_done was already 1.0 before this call.
 	doneChanged := false
 	if newPercent >= 1.0 && !parent.Done {
 		now := time.Now()
@@ -213,6 +212,10 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			return err
 		}
 		doneChanged = true
+	}
+
+	if !changed && !doneChanged {
+		return nil
 	}
 
 	if doneChanged {

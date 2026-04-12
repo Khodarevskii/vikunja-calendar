@@ -1332,10 +1332,13 @@ async function recalcPercentDone() {
 		newPercent = Math.round(done) / 100
 	}
 
-	if (newPercent !== task.value.percentDone) {
-		// Auto-done: if progress is 100%, mark task as done.
-		const autoDone = newPercent >= 1.0 && !task.value.done
-		const autoUndone = newPercent < 1.0 && task.value.done && task.value.percentDone >= 1.0
+	// Always mark as done when progress is 100%, even if percentDone
+	// didn't change (e.g. user manually un-did a task at 100%).
+	const autoDone = newPercent >= 1.0 && !task.value.done
+	const autoUndone = newPercent < 1.0 && task.value.done && task.value.percentDone >= 1.0
+	const percentChanged = newPercent !== task.value.percentDone
+
+	if (percentChanged || autoDone || autoUndone) {
 		await saveTask({
 			...task.value,
 			percentDone: newPercent,
