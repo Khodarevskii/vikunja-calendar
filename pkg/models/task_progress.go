@@ -172,6 +172,7 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	// Auto-done: when progress reaches 100%, mark the task as done.
 	// When it drops below 100%, mark it as not done (only if the task was
 	// previously auto-completed at 100%).
+	doneChanged := false
 	if newPercent >= 1.0 && !parent.Done {
 		now := time.Now()
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
@@ -181,6 +182,7 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		if err != nil {
 			return err
 		}
+		doneChanged = true
 	} else if newPercent < 1.0 && parent.Done && parent.PercentDone >= 1.0 {
 		// The parent was done at 100% — undo it since progress dropped.
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
@@ -188,6 +190,18 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			DoneAt: time.Time{},
 		})
 		if err != nil {
+			return err
+		}
+		doneChanged = true
+	}
+
+	// When the done status changed (auto-done or auto-undone), cascade
+	// upward so that grandparent tasks also recalculate their progress.
+	// The recursion is bounded because each level only fires when
+	// percent_done actually changed, and a task can only be auto-done
+	// once (the !parent.Done guard above prevents re-entry).
+	if doneChanged {
+		if err := recalculateRelatedTasksPercentDone(s, parentID); err != nil {
 			return err
 		}
 	}
