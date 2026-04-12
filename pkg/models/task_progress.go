@@ -37,10 +37,6 @@ type progressItem struct {
 //  3. If sumOfSetWeights > 100, all items split 100 equally regardless of the
 //     individual weights.
 //  4. If no items are present, the result is 0.
-//
-// The special "split equally regardless of weight" override used when both
-// real subtasks AND checklist items are present is handled by the caller by
-// passing items with Weight = 0.
 func calculateWeightedProgress(items []progressItem) float64 {
 	if len(items) == 0 {
 		return 0
@@ -90,11 +86,15 @@ func calculateWeightedProgress(items []progressItem) float64 {
 // with the given id based on its real subtasks (task relations with kind
 // "subtask") and its embedded checklist items.
 //
-// Rules (matching the user's spec):
-//   - When a parent has both real subtasks AND checklist items, every item
-//     contributes an equal share of 100% (weights ignored).
-//   - Otherwise, the weight rules from calculateWeightedProgress are applied to
-//     whichever group is present (or both independently).
+// Both real subtasks (via Task.SubtaskWeight) and checklist items (via
+// TaskChecklistItem.Weight) may carry an optional weight. The weight rules
+// from calculateWeightedProgress are applied to the combined list:
+//
+//   - Items with Weight > 0 contribute exactly that percentage.
+//   - Unweighted items (Weight == 0) split whatever is left of 100% equally.
+//     For example: if a parent has three subtasks and one has a weight of 10,
+//     the remaining two split 90% → 45% each.
+//   - If the sum of set weights exceeds 100, every item gets an equal share.
 //
 // The task's percent_done is only updated if the computed value differs from
 // what is already stored.
@@ -132,44 +132,15 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		return nil
 	}
 
-	var newPercent float64
-
-	switch {
-	case len(subtasks) > 0 && len(checklistItems) > 0:
-		// Both present: every item gets an equal share of 100% regardless of
-		// its individual weight.
-		items := make([]progressItem, 0, len(subtasks)+len(checklistItems))
-		for _, st := range subtasks {
-			items = append(items, progressItem{Weight: 0, Done: st.Done})
-		}
-		for _, ci := range checklistItems {
-			items = append(items, progressItem{Weight: 0, Done: ci.Done})
-		}
-		total := len(items)
-		var doneCount int
-		for _, it := range items {
-			if it.Done {
-				doneCount++
-			}
-		}
-		newPercent = math.Round((float64(doneCount)/float64(total))*100) / 100
-
-	case len(subtasks) > 0:
-		// Only real subtasks. Real subtasks don't carry a weight of their own
-		// (weights live on checklist items), so they share equally.
-		items := make([]progressItem, 0, len(subtasks))
-		for _, st := range subtasks {
-			items = append(items, progressItem{Weight: 0, Done: st.Done})
-		}
-		newPercent = calculateWeightedProgress(items)
-
-	case len(checklistItems) > 0:
-		items := make([]progressItem, 0, len(checklistItems))
-		for _, ci := range checklistItems {
-			items = append(items, progressItem{Weight: ci.Weight, Done: ci.Done})
-		}
-		newPercent = calculateWeightedProgress(items)
+	items := make([]progressItem, 0, len(subtasks)+len(checklistItems))
+	for _, st := range subtasks {
+		items = append(items, progressItem{Weight: st.SubtaskWeight, Done: st.Done})
 	}
+	for _, ci := range checklistItems {
+		items = append(items, progressItem{Weight: ci.Weight, Done: ci.Done})
+	}
+
+	newPercent := calculateWeightedProgress(items)
 
 	if math.Abs(newPercent-parent.PercentDone) < 0.001 {
 		return nil

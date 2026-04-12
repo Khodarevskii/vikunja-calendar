@@ -107,6 +107,13 @@ type Task struct {
 	// Determines how far a task is left from being done
 	PercentDone float64 `xorm:"DOUBLE null" json:"percent_done"`
 
+	// When this task is used as a real subtask of another task, this is the
+	// percentage it contributes to the parent's percent_done. A value of 0 means
+	// "auto share": the parent will distribute whatever is left of 100% equally
+	// across its unweighted subtasks. See pkg/models/task_progress.go for the
+	// exact calculation.
+	SubtaskWeight float64 `xorm:"DOUBLE null default 0" json:"subtask_weight"`
+
 	// Checklist items used by the task decomposition feature. These are lightweight
 	// items embedded on the task (not full subtasks). They may carry a weight that
 	// contributes to the parent task's percent_done, an optional assignee and a
@@ -1118,6 +1125,10 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		return
 	}
 
+	// Remember the original subtask weight so we can detect whether it
+	// changed even after ot has been mutated below.
+	originalSubtaskWeight := ot.SubtaskWeight
+
 	if t.ProjectID == 0 {
 		t.ProjectID = ot.ProjectID
 	}
@@ -1153,6 +1164,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		"repeat_mode",
 		"cover_image_attachment_id",
 		"checklist_items",
+		"subtask_weight",
 	}
 
 	// Validate fields if provided
@@ -1217,6 +1229,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 		if !fieldSet["checklist_items"] {
 			t.ChecklistItems = ot.ChecklistItems
+		}
+		if !fieldSet["subtask_weight"] {
+			t.SubtaskWeight = ot.SubtaskWeight
 		}
 	}
 
@@ -1414,6 +1429,11 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	if t.CoverImageAttachmentID == 0 {
 		ot.CoverImageAttachmentID = 0
 	}
+	// Subtask weight (0 means "auto share" - a valid, explicit value, so we
+	// must make sure mergo doesn't silently drop a user-supplied 0).
+	if t.SubtaskWeight == 0 {
+		ot.SubtaskWeight = 0
+	}
 
 	_, err = s.ID(t.ID).
 		Cols(colsToUpdate...).
@@ -1448,9 +1468,10 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		log.Errorf("Could not recalculate percent_done for task %d: %s", t.ID, err)
 	}
 
-	// If this task's "done" state changed, propagate the change to any real
-	// parent task that might have it as a subtask.
-	if updateDoneAt {
+	// If this task's "done" state or subtask weight changed, propagate the
+	// change to any real parent task that might have it as a subtask so the
+	// parent's percent_done stays in sync.
+	if updateDoneAt || t.SubtaskWeight != originalSubtaskWeight {
 		if err := recalculateParentTasksPercentDone(s, t.ID); err != nil {
 			log.Errorf("Could not recalculate parent percent_done for task %d: %s", t.ID, err)
 		}
