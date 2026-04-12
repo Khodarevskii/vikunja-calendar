@@ -1461,6 +1461,14 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		return err
 	}
 
+	// When a task is marked as done, cascade downward: recursively mark all
+	// its subtasks and related tasks as done too.
+	if updateDoneAt && t.Done {
+		if err := markChildrenDone(s, t.ID, true, nil); err != nil {
+			log.Errorf("Could not cascade done status to children of task %d: %s", t.ID, err)
+		}
+	}
+
 	// Recompute percent_done on the task itself whenever its checklist items
 	// may have changed. This keeps the parent in sync when a checklist item is
 	// ticked or updated.
