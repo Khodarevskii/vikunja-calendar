@@ -1268,42 +1268,44 @@ async function removeRepeatAfter() {
 	await saveTask()
 }
 
-// Recalculate the percent_done of this task based on its real subtasks and
-// its embedded checklist items. Kept in sync with the backend implementation
-// in pkg/models/task_progress.go:
-//   - Both real subtasks (via subtaskWeight) and checklist items (via weight)
-//     may carry an optional weight.
-//   - Items with weight > 0 contribute exactly that percentage.
-//   - Items without a weight split whatever remains of 100% equally.
-//   - If the sum of set weights exceeds 100, every item is given an equal
-//     share instead.
+// Relation kinds that contribute to percent_done (mirroring the backend's
+// progressRelationKinds in pkg/models/task_progress.go).
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+
+// Recalculate the percent_done of this task based on its related tasks
+// (subtasks + related) and embedded checklist items.
+// Mirrored from the backend — see pkg/models/task_progress.go.
 async function recalcPercentDone() {
-	// Reload the task so we have the freshest checklist and subtasks state.
+	// Reload the task so we have the freshest state.
 	const loaded = await taskService.get({id: props.taskId}, {expand: ['reactions', 'comments', 'is_unread']})
 	Object.assign(task.value, loaded)
 	setActiveFields()
 
-	const subtasks = task.value.relatedTasks?.subtask || []
-	const checklist = task.value.checklistItems || []
-
-	if (subtasks.length === 0 && checklist.length === 0) {
-		return
-	}
-
 	type Item = {weight: number, done: boolean}
 	const items: Item[] = []
-	for (const st of subtasks) {
-		items.push({weight: Number(st.subtaskWeight) || 0, done: !!st.done})
+
+	// Collect tasks from all progress-contributing relation kinds.
+	for (const kind of PROGRESS_RELATION_KINDS) {
+		const tasks = task.value.relatedTasks?.[kind] || []
+		for (const t of tasks) {
+			items.push({weight: Number(t.subtaskWeight) || 0, done: !!t.done})
+		}
 	}
+
+	// Checklist items.
+	const checklist = task.value.checklistItems || []
 	for (const c of checklist) {
 		items.push({weight: Number(c.weight) || 0, done: !!c.done})
+	}
+
+	if (items.length === 0) {
+		return
 	}
 
 	const weightSum = items.reduce((sum, it) => sum + it.weight, 0)
 
 	let newPercent: number
 	if (weightSum > 100) {
-		// Overflow → split equally, weights ignored.
 		const doneCount = items.filter(it => it.done).length
 		newPercent = Math.round((doneCount / items.length) * 100) / 100
 	} else {
@@ -1323,9 +1325,14 @@ async function recalcPercentDone() {
 	}
 
 	if (newPercent !== task.value.percentDone) {
+		// Auto-done: if progress is 100%, mark task as done.
+		const autoDone = newPercent >= 1.0 && !task.value.done
+		const autoUndone = newPercent < 1.0 && task.value.done && task.value.percentDone >= 1.0
 		await saveTask({
 			...task.value,
 			percentDone: newPercent,
+			...(autoDone ? {done: true} : {}),
+			...(autoUndone ? {done: false} : {}),
 		})
 	}
 }
@@ -1337,7 +1344,9 @@ async function onChecklistUpdated() {
 	setActiveFields()
 	// Ensure the percent_done section is visible once we have something to
 	// track.
-	if ((task.value.checklistItems || []).length > 0 || (task.value.relatedTasks?.subtask || []).length > 0) {
+	const hasProgressItems = (task.value.checklistItems || []).length > 0
+		|| PROGRESS_RELATION_KINDS.some(k => (task.value.relatedTasks?.[k] || []).length > 0)
+	if (hasProgressItems) {
 		activeFields.percentDone = true
 	}
 	await recalcPercentDone()

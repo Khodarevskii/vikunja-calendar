@@ -145,7 +145,7 @@
 					</div>
 					<div class="task-actions">
 						<div
-							v-if="rts.kind === 'subtask'"
+							v-if="isProgressKind(rts.kind)"
 							v-tooltip="$t('task.relation.subtaskWeightTooltip')"
 							class="subtask-weight-wrapper"
 						>
@@ -246,6 +246,14 @@ const emit = defineEmits<{
 	'subtaskWeightChanged': [task: ITask],
 	'relationRemoved': [relationKind: IRelationKind, otherTaskId: number],
 }>()
+
+// Relation kinds that contribute to a task's percent_done.
+// Mirrors backend progressRelationKinds in pkg/models/task_progress.go.
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+
+function isProgressKind(kind: IRelationKind): boolean {
+	return PROGRESS_RELATION_KINDS.includes(kind)
+}
 
 const taskStore = useTaskStore()
 const projectStore = useProjectStore()
