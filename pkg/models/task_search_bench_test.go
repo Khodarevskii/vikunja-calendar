@@ -100,7 +100,7 @@ func BenchmarkTaskSearch(b *testing.B) {
 
 	initBenchmarkConfig()
 	SetupTests()
-	err := db.LoadFixtures()
+	err := db.InitTestFixtures()
 	if err != nil {
 		b.Fatalf("load fixtures: %v", err)
 	}
