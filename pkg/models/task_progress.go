@@ -178,20 +178,22 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	newPercent := calculateWeightedProgress(items)
 
-	changed := math.Abs(newPercent-parent.PercentDone) >= 0.001
+	percentChanged := math.Abs(newPercent-parent.PercentDone) >= 0.001
 
-	if !changed {
-		return nil
-	}
-
-	_, err = s.ID(parent.ID).Cols("percent_done").Update(&Task{PercentDone: newPercent})
-	if err != nil {
-		return err
+	if percentChanged {
+		_, err = s.ID(parent.ID).Cols("percent_done").Update(&Task{PercentDone: newPercent})
+		if err != nil {
+			return err
+		}
 	}
 
 	// Auto-done: when progress reaches 100%, mark the task as done.
 	// When it drops below 100%, mark it as not done (only if the task was
 	// previously auto-completed at 100%).
+	//
+	// This check runs even when percent_done did not change so that a stale
+	// done/percent pair gets reconciled (e.g. percent already at 1.0 but done
+	// still false).
 	doneChanged := false
 	if newPercent >= 1.0 && !parent.Done {
 		now := time.Now()
@@ -215,21 +217,19 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		doneChanged = true
 	}
 
-	if doneChanged {
-		// When auto-done, cascade downward: mark any remaining children
-		// as done so the task tree stays consistent. This covers the case
-		// where weighted children sum to 100% but unweighted siblings are
-		// still open.
-		if newPercent >= 1.0 {
-			if err := markChildrenDone(s, parentID, true, nil); err != nil {
-				return err
-			}
+	// When auto-done, cascade downward so weighted children that summed to
+	// 100% don't leave unweighted siblings open.
+	if doneChanged && newPercent >= 1.0 {
+		if err := markChildrenDone(s, parentID, true, nil); err != nil {
+			return err
 		}
+	}
 
-		// Cascade upward so that grandparent tasks also recalculate their
-		// progress. The recursion is bounded because each level only fires
-		// when percent_done actually changed, and a task can only be
-		// auto-done once (the !parent.Done guard above prevents re-entry).
+	// Cascade upward on ANY change (percent or done) so grandparents
+	// recompute their progress even when the intermediate parent did not
+	// cross the 100% threshold. The recursion is bounded because each
+	// ancestor only propagates further when its own state actually changed.
+	if percentChanged || doneChanged {
 		if err := recalculateRelatedTasksPercentDone(s, parentID); err != nil {
 			return err
 		}
