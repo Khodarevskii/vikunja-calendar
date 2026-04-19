@@ -23,6 +23,62 @@ import (
 	"xorm.io/xorm"
 )
 
+// syncTaskBucketForDoneChange moves the task into the done bucket (or back to
+// the default bucket) on all manual-kanban views of its project. Called from
+// the progress cascade because raw Update() calls on the done column bypass
+// updateSingleTask's bucket handling.
+func syncTaskBucketForDoneChange(s *xorm.Session, taskID int64, done bool) error {
+	task, err := GetTaskByIDSimple(s, taskID)
+	if err != nil {
+		return err
+	}
+
+	views := []*ProjectView{}
+	err = s.
+		Where("project_id = ? AND view_kind = ? AND bucket_configuration_mode = ?",
+			task.ProjectID, ProjectViewKindKanban, BucketConfigurationModeManual).
+		Find(&views)
+	if err != nil {
+		return err
+	}
+
+	for _, view := range views {
+		current := &TaskBucket{}
+		_, err := s.Where("task_id = ? AND project_view_id = ?", taskID, view.ID).Get(current)
+		if err != nil {
+			return err
+		}
+
+		var targetBucketID int64
+		if done {
+			if view.DoneBucketID == 0 {
+				continue
+			}
+			targetBucketID = view.DoneBucketID
+		} else {
+			if current.BucketID != view.DoneBucketID {
+				continue
+			}
+			targetBucketID, err = getDefaultBucketID(s, view)
+			if err != nil {
+				return err
+			}
+		}
+
+		if current.BucketID == targetBucketID {
+			continue
+		}
+
+		_, err = s.Where("task_id = ? AND project_view_id = ?", taskID, view.ID).
+			Cols("bucket_id").
+			Update(&TaskBucket{BucketID: targetBucketID})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // progressRelationKinds lists the relation kinds that contribute to a task's
 // percent_done when they appear as outgoing relations (task_id → other_task_id).
 // Subtasks are the classic case; "related" tasks also count now.
@@ -204,6 +260,9 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		if err != nil {
 			return err
 		}
+		if err := syncTaskBucketForDoneChange(s, parent.ID, true); err != nil {
+			return err
+		}
 		doneChanged = true
 	} else if newPercent < 1.0 && parent.Done && parent.PercentDone >= 1.0 {
 		// The parent was done at 100% — undo it since progress dropped.
@@ -212,6 +271,9 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			DoneAt: time.Time{},
 		})
 		if err != nil {
+			return err
+		}
+		if err := syncTaskBucketForDoneChange(s, parent.ID, false); err != nil {
 			return err
 		}
 		doneChanged = true
@@ -296,6 +358,9 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 				})
 			}
 			if err != nil {
+				return err
+			}
+			if err := syncTaskBucketForDoneChange(s, child.ID, done); err != nil {
 				return err
 			}
 		}
