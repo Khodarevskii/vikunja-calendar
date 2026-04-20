@@ -1271,7 +1271,7 @@ async function removeRepeatAfter() {
 
 // Relation kinds that contribute to percent_done (mirroring the backend's
 // progressRelationKinds in pkg/models/task_progress.go).
-const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask']
 
 // Recalculate the percent_done of this task based on its related tasks
 // (subtasks + related) and embedded checklist items.

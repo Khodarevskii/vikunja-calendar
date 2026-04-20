@@ -416,6 +416,154 @@ var seedCmd = &cobra.Command{
 			fmt.Printf("Created label: %s (color: #%s)\n", l.Title, l.HexColor)
 		}
 
+		// =====================
+		// 6. Progress-cascade test project
+		// =====================
+		// Dedicated project with pre-built hierarchies so the subtask progress
+		// functionality (weighted/unweighted contributions, auto-done, upward
+		// and downward cascade, kanban bucket sync) is easy to verify by hand.
+		progressProject := &models.Project{
+			Title:       "Тест прогресса",
+			Description: "Готовые сценарии для проверки автопрогресса подзадач",
+			HexColor:    "8e44ad",
+			OwnerID:     adminID,
+			Position:    400,
+		}
+		if _, err := s.Insert(progressProject); err != nil {
+			_ = s.Rollback()
+			log.Fatalf("Error creating progress-test project: %s", err)
+		}
+		fmt.Printf("Created project: %s (ID: %d)\n", progressProject.Title, progressProject.ID)
+
+		progressViews := []*models.ProjectView{
+			{ProjectID: progressProject.ID, Title: "List", ViewKind: models.ProjectViewKindList, Position: 100},
+			{ProjectID: progressProject.ID, Title: "Kanban", ViewKind: models.ProjectViewKindKanban, Position: 200},
+		}
+		for _, v := range progressViews {
+			if _, err := s.Insert(v); err != nil {
+				_ = s.Rollback()
+				log.Fatalf("Error creating view for progress-test project: %s", err)
+			}
+		}
+
+		// createProgressTask inserts a bare task and returns its ID. Kept local
+		// so the seed does not depend on Task.Create's full permission stack.
+		progressIdx := int64(0)
+		createProgressTask := func(title string, weight float64, checklist []*models.TaskChecklistItem) int64 {
+			progressIdx++
+			t := &models.Task{
+				Title:          title,
+				ProjectID:      progressProject.ID,
+				CreatedByID:    adminID,
+				Index:          progressIdx,
+				SubtaskWeight:  weight,
+				ChecklistItems: checklist,
+			}
+			if _, err := s.Insert(t); err != nil {
+				_ = s.Rollback()
+				log.Fatalf("Error creating progress task '%s': %s", title, err)
+			}
+			return t.ID
+		}
+
+		relate := func(parentID, childID int64) {
+			rels := []*models.TaskRelation{
+				{
+					TaskID:       parentID,
+					OtherTaskID:  childID,
+					RelationKind: models.RelationKindSubtask,
+					CreatedByID:  adminID,
+				},
+				{
+					TaskID:       childID,
+					OtherTaskID:  parentID,
+					RelationKind: models.RelationKindParenttask,
+					CreatedByID:  adminID,
+				},
+			}
+			for _, r := range rels {
+				if _, err := s.Insert(r); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error creating relation %d->%d: %s", r.TaskID, r.OtherTaskID, err)
+				}
+			}
+		}
+
+		// Scenario 1: linear chain of 4 tasks.
+		// Mark the deepest done → каскад вверх должен закрыть все 4.
+		// Снять галочку с любой промежуточной → всё дерево вниз должно открыться.
+		chainIDs := []int64{
+			createProgressTask("[Цепочка] Уровень 1 (корень)", 0, nil),
+			createProgressTask("[Цепочка] Уровень 2", 0, nil),
+			createProgressTask("[Цепочка] Уровень 3", 0, nil),
+			createProgressTask("[Цепочка] Уровень 4 (самая глубокая)", 0, nil),
+		}
+		for i := 0; i < len(chainIDs)-1; i++ {
+			relate(chainIDs[i], chainIDs[i+1])
+		}
+
+		// Scenario 2: sibling tree with nested subtask.
+		//   T1 → {T2, T2b}
+		//   T2 → T3
+		// Mark T3 done → T2=100%, T1=50%, T2b не тронута.
+		tree1 := createProgressTask("[Дерево] T1 (родитель с двумя ветками)", 0, nil)
+		tree2 := createProgressTask("[Дерево] T2 (ветка A)", 0, nil)
+		tree2b := createProgressTask("[Дерево] T2b (ветка B)", 0, nil)
+		tree3 := createProgressTask("[Дерево] T3 (подзадача T2)", 0, nil)
+		relate(tree1, tree2)
+		relate(tree1, tree2b)
+		relate(tree2, tree3)
+
+		// Scenario 3: weighted subtasks.
+		//   root → {A(weight=80), B(auto), C(auto)}
+		//   Отметить A → root.percent_done = 0.80
+		//   Отметить A+B → root.percent_done ≈ 0.90 (B и C делят 20% пополам)
+		weightedRoot := createProgressTask("[Веса] Корень: A=80%, B и C делят 20%", 0, nil)
+		wA := createProgressTask("[Веса] A (вес 80)", 80, nil)
+		wB := createProgressTask("[Веса] B (авто)", 0, nil)
+		wC := createProgressTask("[Веса] C (авто)", 0, nil)
+		relate(weightedRoot, wA)
+		relate(weightedRoot, wB)
+		relate(weightedRoot, wC)
+
+		// Scenario 4: weight overflow (sum > 100).
+		//   root → {X(weight=70), Y(weight=70)}  → при переполнении все делят 100% поровну.
+		overflowRoot := createProgressTask("[Переполнение] Сумма весов > 100", 0, nil)
+		ovX := createProgressTask("[Переполнение] X (вес 70)", 70, nil)
+		ovY := createProgressTask("[Переполнение] Y (вес 70)", 70, nil)
+		relate(overflowRoot, ovX)
+		relate(overflowRoot, ovY)
+
+		// Scenario 5: checklist + subtask mix.
+		//   root: subtask S + checklist (item1 weight=50, item2 auto)
+		//   Список пунктов виден внутри задачи, подзадача — в Related.
+		mixRoot := createProgressTask(
+			"[Смешанное] Чеклист + подзадача",
+			0,
+			[]*models.TaskChecklistItem{
+				{ID: "ci-1", Title: "Пункт чеклиста 1 (вес 50)", Weight: 50},
+				{ID: "ci-2", Title: "Пункт чеклиста 2 (авто)"},
+			},
+		)
+		mixSub := createProgressTask("[Смешанное] Подзадача (авто)", 0, nil)
+		relate(mixRoot, mixSub)
+
+		// Scenario 6: auto-done → kanban bucket move.
+		//   В Kanban-представлении вручную создайте done-бакет и назначьте
+		//   его «ведром для выполненных». Отметьте подзадачу — родитель
+		//   должен автоматически переехать в этот бакет.
+		kanbanRoot := createProgressTask("[Kanban] Родитель для проверки переезда в done-бакет", 0, nil)
+		kanbanSub := createProgressTask("[Kanban] Единственная подзадача", 0, nil)
+		relate(kanbanRoot, kanbanSub)
+
+		fmt.Println("\nProgress-test hierarchies created:")
+		fmt.Printf("  Chain (4 levels):          %v\n", chainIDs)
+		fmt.Printf("  Tree T1={T2,T2b}, T2→T3:   %d, %d, %d, %d\n", tree1, tree2, tree2b, tree3)
+		fmt.Printf("  Weighted A=80, B, C auto:  %d → %d, %d, %d\n", weightedRoot, wA, wB, wC)
+		fmt.Printf("  Overflow X=70, Y=70:       %d → %d, %d\n", overflowRoot, ovX, ovY)
+		fmt.Printf("  Mixed checklist + subtask: %d (subtask %d)\n", mixRoot, mixSub)
+		fmt.Printf("  Kanban done-bucket check:  %d → %d\n", kanbanRoot, kanbanSub)
+
 		// Commit the transaction
 		if err := s.Commit(); err != nil {
 			log.Fatalf("Error committing transaction: %s", err)
@@ -428,8 +576,9 @@ var seedCmd = &cobra.Command{
 		fmt.Printf("  reader2 (ID: %d) - Только чтение в 'Маркетинг'\n", reader2ID)
 		fmt.Printf("  editor  (ID: %d) - Может добавлять задачи в 'Дизайн'\n", editorID)
 		fmt.Println("\nProjects:")
-		fmt.Printf("  Маркетинг  (ID: %d) - 5 задач, синий\n", marketingID)
-		fmt.Printf("  Разработка (ID: %d) - 6 задач, зелёный\n", devID)
-		fmt.Printf("  Дизайн     (ID: %d) - 5 задач, красный\n", designID)
+		fmt.Printf("  Маркетинг       (ID: %d) - 5 задач, синий\n", marketingID)
+		fmt.Printf("  Разработка      (ID: %d) - 6 задач, зелёный\n", devID)
+		fmt.Printf("  Дизайн          (ID: %d) - 5 задач, красный\n", designID)
+		fmt.Printf("  Тест прогресса  (ID: %d) - сценарии для проверки каскада подзадач\n", progressProject.ID)
 	},
 }
