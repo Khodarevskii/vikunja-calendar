@@ -81,11 +81,11 @@ func syncTaskBucketForDoneChange(s *xorm.Session, taskID int64, done bool) error
 
 // progressRelationKinds lists the relation kinds that contribute to a task's
 // percent_done when they appear as outgoing relations (task_id → other_task_id).
-// Subtasks are the classic case; "related" tasks also count now.
+// Only real subtasks count — other relation kinds (including "related") are
+// not cascaded either for progress or for auto-done status.
 // Stored as []interface{} so we can pass it directly to xorm's In() method.
 var progressRelationKinds = []interface{}{
 	RelationKindSubtask,
-	RelationKindRelated,
 }
 
 // isProgressRelationKind returns true if the given kind contributes to

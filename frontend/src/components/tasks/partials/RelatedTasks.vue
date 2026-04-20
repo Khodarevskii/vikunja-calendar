@@ -250,7 +250,7 @@ const emit = defineEmits<{
 
 // Relation kinds that contribute to a task's percent_done.
 // Mirrors backend progressRelationKinds in pkg/models/task_progress.go.
-const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask', 'related']
+const PROGRESS_RELATION_KINDS: IRelationKind[] = ['subtask']
 
 function isProgressKind(kind: IRelationKind): boolean {
 	return PROGRESS_RELATION_KINDS.includes(kind)
