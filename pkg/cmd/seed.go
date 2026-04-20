@@ -119,6 +119,45 @@ var seedCmd = &cobra.Command{
 			{Title: "Дизайн", HexColor: "f54242", Desc: "Дизайн и UI/UX задачи"},
 		}
 
+		// setupKanbanView turns the given Kanban view into a manual board with
+		// three default buckets (To do / In progress / Done) and marks the
+		// first as the default and the last as the done bucket. Returns the
+		// default- and done-bucket IDs so the caller can place tasks into the
+		// right column.
+		setupKanbanView := func(view *models.ProjectView) (defaultBucketID, doneBucketID int64) {
+			buckets := []*models.Bucket{
+				{Title: "К выполнению", ProjectViewID: view.ID, Position: 100, CreatedByID: adminID},
+				{Title: "В работе", ProjectViewID: view.ID, Position: 200, CreatedByID: adminID},
+				{Title: "Выполнено", ProjectViewID: view.ID, Position: 300, CreatedByID: adminID},
+			}
+			for _, b := range buckets {
+				if _, err := s.Insert(b); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error creating bucket '%s': %s", b.Title, err)
+				}
+			}
+
+			view.BucketConfigurationMode = models.BucketConfigurationModeManual
+			view.DefaultBucketID = buckets[0].ID
+			view.DoneBucketID = buckets[2].ID
+			if _, err := s.ID(view.ID).
+				Cols("bucket_configuration_mode", "default_bucket_id", "done_bucket_id").
+				Update(view); err != nil {
+				_ = s.Rollback()
+				log.Fatalf("Error updating kanban view %d: %s", view.ID, err)
+			}
+			return buckets[0].ID, buckets[2].ID
+		}
+
+		// projectKanban holds the bucket IDs needed to place a newly inserted
+		// task into the correct kanban column.
+		type projectKanban struct {
+			viewID          int64
+			defaultBucketID int64
+			doneBucketID    int64
+		}
+		kanbanByProject := make(map[int64]projectKanban)
+
 		projectIDs := make([]int64, 3)
 		for i, pd := range projectDefs {
 			p := &models.Project{
@@ -139,37 +178,23 @@ var seedCmd = &cobra.Command{
 
 			// Create default views for each project (List, Gantt, Table, Kanban)
 			views := []*models.ProjectView{
-				{
-					ProjectID: p.ID,
-					Title:     "List",
-					ViewKind:  models.ProjectViewKindList,
-					Position:  100,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Gantt",
-					ViewKind:  models.ProjectViewKindGantt,
-					Position:  200,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Table",
-					ViewKind:  models.ProjectViewKindTable,
-					Position:  300,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Kanban",
-					ViewKind:  models.ProjectViewKindKanban,
-					Position:  400,
-				},
+				{ProjectID: p.ID, Title: "List", ViewKind: models.ProjectViewKindList, Position: 100},
+				{ProjectID: p.ID, Title: "Gantt", ViewKind: models.ProjectViewKindGantt, Position: 200},
+				{ProjectID: p.ID, Title: "Table", ViewKind: models.ProjectViewKindTable, Position: 300},
+				{ProjectID: p.ID, Title: "Kanban", ViewKind: models.ProjectViewKindKanban, Position: 400},
 			}
 			for _, v := range views {
-				_, err := s.Insert(v)
-				if err != nil {
+				if _, err := s.Insert(v); err != nil {
 					_ = s.Rollback()
 					log.Fatalf("Error creating view for project %s: %s", pd.Title, err)
 				}
+			}
+			kanbanView := views[3]
+			defaultID, doneID := setupKanbanView(kanbanView)
+			kanbanByProject[p.ID] = projectKanban{
+				viewID:          kanbanView.ID,
+				defaultBucketID: defaultID,
+				doneBucketID:    doneID,
 			}
 		}
 
@@ -392,6 +417,25 @@ var seedCmd = &cobra.Command{
 			if err != nil {
 				_ = s.Rollback()
 				log.Fatalf("Error creating task '%s': %s", td.Title, err)
+			}
+
+			// Pin the task to the Kanban board so it's visible in the
+			// Kanban view (default column for open tasks, done column for
+			// completed ones).
+			if k, ok := kanbanByProject[td.ProjectID]; ok {
+				bucketID := k.defaultBucketID
+				if td.Done {
+					bucketID = k.doneBucketID
+				}
+				tb := &models.TaskBucket{
+					TaskID:        t.ID,
+					BucketID:      bucketID,
+					ProjectViewID: k.viewID,
+				}
+				if _, err := s.Insert(tb); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error placing task '%s' into kanban bucket: %s", td.Title, err)
+				}
 			}
 			fmt.Printf("Created task: %s (color: #%s)\n", td.Title, td.HexColor)
 		}
