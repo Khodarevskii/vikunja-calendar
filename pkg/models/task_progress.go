@@ -158,6 +158,8 @@ type progressItem struct {
 //  3. If sumOfSetWeights > 100, all items split 100 equally regardless of the
 //     individual weights.
 //  4. If no items are present, the result is 0.
+//
+// calculateWeightedProgress возвращает значение, округлённое до ближайшего шага 10%
 func calculateWeightedProgress(items []progressItem) float64 {
 	if len(items) == 0 {
 		return 0
@@ -180,7 +182,8 @@ func calculateWeightedProgress(items []progressItem) float64 {
 				doneCount++
 			}
 		}
-		return math.Round((float64(doneCount)/float64(len(items)))*100) / 100
+		rawProgress := (float64(doneCount) / float64(len(items))) * 100
+		return roundToNearestStep(rawProgress, 10)
 	}
 
 	unweighted := len(items) - weightedCount
@@ -200,7 +203,24 @@ func calculateWeightedProgress(items []progressItem) float64 {
 		}
 	}
 
-	return math.Round(done) / 100
+	return roundToNearestStep(done, 10)
+}
+
+// roundToNearestStep округляет значение до ближайшего шага
+// step: 10 для 10%, 5 для 5% и т.д.
+func roundToNearestStep(value float64, step float64) float64 {
+	if step <= 0 {
+		return value
+	}
+	rounded := math.Round(value/step) * step
+	// Ограничиваем диапазон [0, 100]
+	if rounded < 0 {
+		return 0
+	}
+	if rounded > 100 {
+		return 100
+	}
+	return rounded / 100 // Возвращаем в формате 0.0-1.0
 }
 
 // recalculateTaskPercentDone recomputes the percent_done field for the task
