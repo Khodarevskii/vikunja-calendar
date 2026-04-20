@@ -81,10 +81,18 @@ func syncTaskBucketForDoneChange(s *xorm.Session, taskID int64, done bool) error
 
 // progressRelationKinds lists the relation kinds that contribute to a task's
 // percent_done when they appear as outgoing relations (task_id → other_task_id).
-// Only real subtasks count — other relation kinds (including "related") are
-// not cascaded either for progress or for auto-done status.
+// Both subtasks and "related" tasks are included so a related task that gets
+// completed (through its own subtask cascade) bumps the parent's progress.
 // Stored as []interface{} so we can pass it directly to xorm's In() method.
 var progressRelationKinds = []interface{}{
+	RelationKindSubtask,
+	RelationKindRelated,
+}
+
+// childDoneCascadeKinds is a narrower list: only real subtasks get their
+// done status forced when a parent is marked done or undone. Related tasks
+// stay independent — they only flip to done when their own subtasks do.
+var childDoneCascadeKinds = []interface{}{
 	RelationKindSubtask,
 }
 
@@ -315,10 +323,11 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 	}
 	visited[taskID] = true
 
-	// Find outgoing progress-contributing relations (subtask, related).
+	// Only traverse real subtasks here. Related tasks stay untouched —
+	// they flip to done independently, through their own subtask cascade.
 	relations := []*TaskRelation{}
 	err := s.Where("task_id = ?", taskID).
-		In("relation_kind", progressRelationKinds).
+		In("relation_kind", childDoneCascadeKinds).
 		Find(&relations)
 	if err != nil {
 		return err
