@@ -113,7 +113,6 @@ func syncTaskBucketForDoneChange(s *xorm.Session, taskID int64, done bool) error
 // Stored as []interface{} so we can pass it directly to xorm's In() method.
 var progressRelationKinds = []interface{}{
 	RelationKindSubtask,
-	RelationKindRelated,
 }
 
 // childDoneCascadeKinds is a narrower list: only real subtasks get their
