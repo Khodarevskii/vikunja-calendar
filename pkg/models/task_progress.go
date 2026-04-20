@@ -296,11 +296,11 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	newPercent := calculateWeightedProgress(items)
 
 	// Auto-done gate: separate from percent_done. A task finishes when every
-	// one of its own subtasks and every checklist item is done, regardless
-	// of the related-task side. Related tasks still influence the percent
-	// bar above, but we do not want to block closing a task that only
-	// depends on its own subtasks because some loosely-linked related task
-	// has outstanding work.
+	// one of its own subtasks, every structured checklist item and every
+	// description task-list checkbox is done. Related tasks still influence
+	// the percent bar above, but we do not want to block closing a task that
+	// only depends on its own subtasks because some loosely-linked related
+	// task has outstanding work.
 	subtaskCount := 0
 	hasOpenSubtask := false
 	for _, rt := range relatedTasks {
@@ -319,8 +319,15 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			break
 		}
 	}
-	hasDoneGate := subtaskCount > 0 || len(checklistItems) > 0
-	allGatesDone := hasDoneGate && !hasOpenSubtask && !hasOpenChecklistItem
+	hasOpenDescriptionItem := false
+	for _, di := range descriptionItems {
+		if !di.Done {
+			hasOpenDescriptionItem = true
+			break
+		}
+	}
+	hasDoneGate := subtaskCount > 0 || len(checklistItems) > 0 || len(descriptionItems) > 0
+	allGatesDone := hasDoneGate && !hasOpenSubtask && !hasOpenChecklistItem && !hasOpenDescriptionItem
 
 	percentChanged := math.Abs(newPercent-parent.PercentDone) >= 0.001
 
