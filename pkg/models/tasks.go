@@ -1485,6 +1485,18 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 	}
 
+	// Pull the recomputed percent_done / done / done_at back into t so the
+	// handler's JSON response reflects the freshly-calculated values. Without
+	// this the caller (e.g. Description.vue saving a task-list checkbox edit)
+	// would see a stale percent because recalculateTaskPercentDone writes
+	// directly to the DB and does not touch the in-memory struct.
+	refreshed, rerr := GetTaskByIDSimple(s, t.ID)
+	if rerr == nil {
+		t.PercentDone = refreshed.PercentDone
+		t.Done = refreshed.Done
+		t.DoneAt = refreshed.DoneAt
+	}
+
 	return updateProjectLastUpdated(s, &Project{ID: t.ProjectID})
 }
 
