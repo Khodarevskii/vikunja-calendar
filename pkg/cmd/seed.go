@@ -533,6 +533,32 @@ var seedCmd = &cobra.Command{
 			}
 		}
 
+		// relateAsRelated links two tasks via the "related" kind (symmetrical),
+		// which contributes to percent_done on both sides but must NOT trigger
+		// the auto-done gate. Used by the related-task scenarios below.
+		relateAsRelated := func(aID, bID int64) {
+			rels := []*models.TaskRelation{
+				{
+					TaskID:       aID,
+					OtherTaskID:  bID,
+					RelationKind: models.RelationKindRelated,
+					CreatedByID:  adminID,
+				},
+				{
+					TaskID:       bID,
+					OtherTaskID:  aID,
+					RelationKind: models.RelationKindRelated,
+					CreatedByID:  adminID,
+				},
+			}
+			for _, r := range rels {
+				if _, err := s.Insert(r); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error creating related link %d<->%d: %s", r.TaskID, r.OtherTaskID, err)
+				}
+			}
+		}
+
 		// Scenario 1: linear chain of 4 tasks.
 		// Mark the deepest done → каскад вверх должен закрыть все 4.
 		// Снять галочку с любой промежуточной → всё дерево вниз должно открыться.
@@ -600,6 +626,32 @@ var seedCmd = &cobra.Command{
 		kanbanSub := createProgressTask("[Kanban] Единственная подзадача", 0, nil)
 		relate(kanbanRoot, kanbanSub)
 
+		// Scenario 7: related-only — влияет на процент, не закрывает родителя.
+		//   R_host связан как "related" с R_peer.
+		//   У R_peer есть своя подзадача R_peer_sub.
+		//   Отметить R_peer_sub → R_peer авто-done (его собственный гейт),
+		//   процент R_host пересчитается (50% если их двое), но сам R_host
+		//   остаётся открытым, пока его СОБСТВЕННЫЕ подзадачи не закрыты.
+		relHost := createProgressTask("[Related] R_host (host-задача с related)", 0, nil)
+		relHostOwnSub := createProgressTask("[Related] Собственная подзадача R_host", 0, nil)
+		relPeer := createProgressTask("[Related] R_peer (связанная через related)", 0, nil)
+		relPeerSub := createProgressTask("[Related] Подзадача R_peer", 0, nil)
+		relate(relHost, relHostOwnSub)
+		relate(relPeer, relPeerSub)
+		relateAsRelated(relHost, relPeer)
+
+		// Scenario 8: subtask + related gate — проверка нового поведения
+		// авто-done:
+		//   G_root имеет подзадачу G_sub и related-задачу G_rel.
+		//   1) Отметить G_sub → G_root должен авто-закрыться (его гейт — только
+		//      собственные подзадачи), даже если G_rel ещё открыт.
+		//   2) percent_done при этом может быть < 100%, пока G_rel не выполнен.
+		gateRoot := createProgressTask("[Гейт] G_root: закроется по подзадаче, игнорируя related", 0, nil)
+		gateSub := createProgressTask("[Гейт] G_sub (единственная подзадача G_root)", 0, nil)
+		gateRel := createProgressTask("[Гейт] G_rel (related для G_root)", 0, nil)
+		relate(gateRoot, gateSub)
+		relateAsRelated(gateRoot, gateRel)
+
 		fmt.Println("\nProgress-test hierarchies created:")
 		fmt.Printf("  Chain (4 levels):          %v\n", chainIDs)
 		fmt.Printf("  Tree T1={T2,T2b}, T2→T3:   %d, %d, %d, %d\n", tree1, tree2, tree2b, tree3)
@@ -607,6 +659,10 @@ var seedCmd = &cobra.Command{
 		fmt.Printf("  Overflow X=70, Y=70:       %d → %d, %d\n", overflowRoot, ovX, ovY)
 		fmt.Printf("  Mixed checklist + subtask: %d (subtask %d)\n", mixRoot, mixSub)
 		fmt.Printf("  Kanban done-bucket check:  %d → %d\n", kanbanRoot, kanbanSub)
+		fmt.Printf("  Related host+peer:         host=%d (sub=%d), peer=%d (sub=%d)\n",
+			relHost, relHostOwnSub, relPeer, relPeerSub)
+		fmt.Printf("  Subtask+related gate:      root=%d (sub=%d, rel=%d)\n",
+			gateRoot, gateSub, gateRel)
 
 		// Commit the transaction
 		if err := s.Commit(); err != nil {
