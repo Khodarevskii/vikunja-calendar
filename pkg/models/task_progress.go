@@ -18,10 +18,37 @@ package models
 
 import (
 	"math"
+	"regexp"
 	"time"
 
 	"xorm.io/xorm"
 )
+
+// descriptionTaskItemRE finds every TipTap task-list checkbox rendered into
+// the task description. Each <li data-type="taskItem"> node carries a
+// data-checked="true|false" attribute — that is the only place in the editor's
+// HTML output where this attribute appears, so a simple regex is enough to
+// count the items and their state without pulling in a full HTML parser.
+var descriptionTaskItemRE = regexp.MustCompile(`data-checked="(true|false)"`)
+
+// extractDescriptionChecklistItems scans the description HTML for TipTap task
+// list checkboxes and returns one unweighted progress item per checkbox. The
+// zero Weight lets these items share the "auto" remainder of 100% equally
+// with unweighted subtasks and structured checklist items.
+func extractDescriptionChecklistItems(description string) []progressItem {
+	if description == "" {
+		return nil
+	}
+	matches := descriptionTaskItemRE.FindAllStringSubmatch(description, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	items := make([]progressItem, 0, len(matches))
+	for _, m := range matches {
+		items = append(items, progressItem{Done: m[1] == "true"})
+	}
+	return items
+}
 
 // syncTaskBucketForDoneChange moves the task into the done bucket (or back to
 // the default bucket) on all manual-kanban views of its project. Called from
@@ -218,19 +245,21 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	}
 
 	checklistItems := parent.ChecklistItems
+	descriptionItems := extractDescriptionChecklistItems(parent.Description)
 
 	// Nothing to compute from.
-	if len(relatedTasks) == 0 && len(checklistItems) == 0 {
+	if len(relatedTasks) == 0 && len(checklistItems) == 0 && len(descriptionItems) == 0 {
 		return nil
 	}
 
-	items := make([]progressItem, 0, len(relatedTasks)+len(checklistItems))
+	items := make([]progressItem, 0, len(relatedTasks)+len(checklistItems)+len(descriptionItems))
 	for _, rt := range relatedTasks {
 		items = append(items, progressItem{Weight: rt.SubtaskWeight, Done: rt.Done})
 	}
 	for _, ci := range checklistItems {
 		items = append(items, progressItem{Weight: ci.Weight, Done: ci.Done})
 	}
+	items = append(items, descriptionItems...)
 
 	newPercent := calculateWeightedProgress(items)
 
