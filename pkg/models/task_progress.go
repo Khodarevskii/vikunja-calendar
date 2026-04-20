@@ -203,7 +203,8 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	}
 
 	// Collect related tasks via task_relations for all progress-contributing
-	// relation kinds (subtask, related).
+	// relation kinds (subtask, related). All of them influence percent_done,
+	// but only real subtasks gate the auto-done decision below.
 	relations := []*TaskRelation{}
 	err = s.Where("task_id = ?", parentID).
 		In("relation_kind", progressRelationKinds).
@@ -212,9 +213,13 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		return err
 	}
 
+	isSubtaskRelation := make(map[int64]bool, len(relations))
 	relatedIDs := make([]int64, 0, len(relations))
 	for _, r := range relations {
 		relatedIDs = append(relatedIDs, r.OtherTaskID)
+		if r.RelationKind == RelationKindSubtask {
+			isSubtaskRelation[r.OtherTaskID] = true
+		}
 	}
 
 	relatedTasks := []*Task{}
@@ -242,6 +247,33 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	newPercent := calculateWeightedProgress(items)
 
+	// Auto-done gate: separate from percent_done. A task finishes when every
+	// one of its own subtasks and every checklist item is done, regardless
+	// of the related-task side. Related tasks still influence the percent
+	// bar above, but we do not want to block closing a task that only
+	// depends on its own subtasks because some loosely-linked related task
+	// has outstanding work.
+	subtaskCount := 0
+	hasOpenSubtask := false
+	for _, rt := range relatedTasks {
+		if !isSubtaskRelation[rt.ID] {
+			continue
+		}
+		subtaskCount++
+		if !rt.Done {
+			hasOpenSubtask = true
+		}
+	}
+	hasOpenChecklistItem := false
+	for _, ci := range checklistItems {
+		if !ci.Done {
+			hasOpenChecklistItem = true
+			break
+		}
+	}
+	hasDoneGate := subtaskCount > 0 || len(checklistItems) > 0
+	allGatesDone := hasDoneGate && !hasOpenSubtask && !hasOpenChecklistItem
+
 	percentChanged := math.Abs(newPercent-parent.PercentDone) >= 0.001
 
 	if percentChanged {
@@ -251,15 +283,12 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		}
 	}
 
-	// Auto-done: when progress reaches 100%, mark the task as done.
-	// When it drops below 100%, mark it as not done (only if the task was
-	// previously auto-completed at 100%).
-	//
-	// This check runs even when percent_done did not change so that a stale
-	// done/percent pair gets reconciled (e.g. percent already at 1.0 but done
-	// still false).
+	// Auto-done: flips when the gate above flips, not when percent_done
+	// crosses 100. Auto-undone still only kicks in when the task was
+	// previously auto-completed (parent.PercentDone >= 1.0) so manual
+	// done-toggles on leaf tasks are left alone.
 	doneChanged := false
-	if newPercent >= 1.0 && !parent.Done {
+	if allGatesDone && !parent.Done {
 		now := time.Now()
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
 			Done:   true,
@@ -272,8 +301,8 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			return err
 		}
 		doneChanged = true
-	} else if newPercent < 1.0 && parent.Done && parent.PercentDone >= 1.0 {
-		// The parent was done at 100% — undo it since progress dropped.
+	} else if hasDoneGate && !allGatesDone && parent.Done && parent.PercentDone >= 1.0 {
+		// Previously auto-completed — undo it since a gate reopened.
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
 			Done:   false,
 			DoneAt: time.Time{},
@@ -289,7 +318,7 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	// When auto-done, cascade downward so weighted children that summed to
 	// 100% don't leave unweighted siblings open.
-	if doneChanged && newPercent >= 1.0 {
+	if doneChanged && allGatesDone {
 		if err := markChildrenDone(s, parentID, true, nil); err != nil {
 			return err
 		}
