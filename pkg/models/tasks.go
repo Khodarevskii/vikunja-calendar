@@ -118,7 +118,7 @@ type Task struct {
 	// items embedded on the task (not full subtasks). They may carry a weight that
 	// contributes to the parent task's percent_done, an optional assignee and a
 	// position. When rendered, they inherit the parent task's dates.
-	ChecklistItems []*TaskChecklistItem `xorm:"json null" json:"checklist_items"`
+	ChecklistItems []*TaskChecklistItem `xorm:"jsonb null" json:"checklist_items"`
 
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
