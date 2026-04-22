@@ -1,7 +1,7 @@
 services:
   vikunja:
-    image: vikunja-subtask:latest
-    container_name: vikunja-subtask
+    image: my-vikunja:latest
+    container_name: vikunja
     restart: unless-stopped
     ports:
       - "3456:3456"
