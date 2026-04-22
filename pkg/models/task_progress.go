@@ -18,10 +18,37 @@ package models
 
 import (
 	"math"
+	"regexp"
 	"time"
 
 	"xorm.io/xorm"
 )
+
+// descriptionTaskItemRE finds every TipTap task-list checkbox rendered into
+// the task description. Each <li data-type="taskItem"> node carries a
+// data-checked="true|false" attribute — that is the only place in the editor's
+// HTML output where this attribute appears, so a simple regex is enough to
+// count the items and their state without pulling in a full HTML parser.
+var descriptionTaskItemRE = regexp.MustCompile(`data-checked="(true|false)"`)
+
+// extractDescriptionChecklistItems scans the description HTML for TipTap task
+// list checkboxes and returns one unweighted progress item per checkbox. The
+// zero Weight lets these items share the "auto" remainder of 100% equally
+// with unweighted subtasks and structured checklist items.
+func extractDescriptionChecklistItems(description string) []progressItem {
+	if description == "" {
+		return nil
+	}
+	matches := descriptionTaskItemRE.FindAllStringSubmatch(description, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	items := make([]progressItem, 0, len(matches))
+	for _, m := range matches {
+		items = append(items, progressItem{Done: m[1] == "true"})
+	}
+	return items
+}
 
 // syncTaskBucketForDoneChange moves the task into the done bucket (or back to
 // the default bucket) on all manual-kanban views of its project. Called from
@@ -81,10 +108,17 @@ func syncTaskBucketForDoneChange(s *xorm.Session, taskID int64, done bool) error
 
 // progressRelationKinds lists the relation kinds that contribute to a task's
 // percent_done when they appear as outgoing relations (task_id → other_task_id).
-// Only real subtasks count — other relation kinds (including "related") are
-// not cascaded either for progress or for auto-done status.
+// Both subtasks and "related" tasks are included so a related task that gets
+// completed (through its own subtask cascade) bumps the parent's progress.
 // Stored as []interface{} so we can pass it directly to xorm's In() method.
 var progressRelationKinds = []interface{}{
+	RelationKindSubtask,
+}
+
+// childDoneCascadeKinds is a narrower list: only real subtasks get their
+// done status forced when a parent is marked done or undone. Related tasks
+// stay independent — they only flip to done when their own subtasks do.
+var childDoneCascadeKinds = []interface{}{
 	RelationKindSubtask,
 }
 
@@ -123,6 +157,8 @@ type progressItem struct {
 //  3. If sumOfSetWeights > 100, all items split 100 equally regardless of the
 //     individual weights.
 //  4. If no items are present, the result is 0.
+//
+// calculateWeightedProgress возвращает значение, округлённое до ближайшего шага 10%
 func calculateWeightedProgress(items []progressItem) float64 {
 	if len(items) == 0 {
 		return 0
@@ -145,7 +181,8 @@ func calculateWeightedProgress(items []progressItem) float64 {
 				doneCount++
 			}
 		}
-		return math.Round((float64(doneCount)/float64(len(items)))*100) / 100
+		rawProgress := (float64(doneCount) / float64(len(items))) * 100
+		return roundToNearestStep(rawProgress, 10)
 	}
 
 	unweighted := len(items) - weightedCount
@@ -165,7 +202,24 @@ func calculateWeightedProgress(items []progressItem) float64 {
 		}
 	}
 
-	return math.Round(done) / 100
+	return roundToNearestStep(done, 10)
+}
+
+// roundToNearestStep округляет значение до ближайшего шага
+// step: 10 для 10%, 5 для 5% и т.д.
+func roundToNearestStep(value float64, step float64) float64 {
+	if step <= 0 {
+		return value
+	}
+	rounded := math.Round(value/step) * step
+	// Ограничиваем диапазон [0, 100]
+	if rounded < 0 {
+		return 0
+	}
+	if rounded > 100 {
+		return 100
+	}
+	return rounded / 100 // Возвращаем в формате 0.0-1.0
 }
 
 // recalculateTaskPercentDone recomputes the percent_done field for the task
@@ -195,7 +249,8 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	}
 
 	// Collect related tasks via task_relations for all progress-contributing
-	// relation kinds (subtask, related).
+	// relation kinds (subtask, related). All of them influence percent_done,
+	// but only real subtasks gate the auto-done decision below.
 	relations := []*TaskRelation{}
 	err = s.Where("task_id = ?", parentID).
 		In("relation_kind", progressRelationKinds).
@@ -204,9 +259,13 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		return err
 	}
 
+	isSubtaskRelation := make(map[int64]bool, len(relations))
 	relatedIDs := make([]int64, 0, len(relations))
 	for _, r := range relations {
 		relatedIDs = append(relatedIDs, r.OtherTaskID)
+		if r.RelationKind == RelationKindSubtask {
+			isSubtaskRelation[r.OtherTaskID] = true
+		}
 	}
 
 	relatedTasks := []*Task{}
@@ -218,21 +277,57 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	}
 
 	checklistItems := parent.ChecklistItems
+	descriptionItems := extractDescriptionChecklistItems(parent.Description)
 
 	// Nothing to compute from.
-	if len(relatedTasks) == 0 && len(checklistItems) == 0 {
+	if len(relatedTasks) == 0 && len(checklistItems) == 0 && len(descriptionItems) == 0 {
 		return nil
 	}
 
-	items := make([]progressItem, 0, len(relatedTasks)+len(checklistItems))
+	items := make([]progressItem, 0, len(relatedTasks)+len(checklistItems)+len(descriptionItems))
 	for _, rt := range relatedTasks {
 		items = append(items, progressItem{Weight: rt.SubtaskWeight, Done: rt.Done})
 	}
 	for _, ci := range checklistItems {
 		items = append(items, progressItem{Weight: ci.Weight, Done: ci.Done})
 	}
+	items = append(items, descriptionItems...)
 
 	newPercent := calculateWeightedProgress(items)
+
+	// Auto-done gate: separate from percent_done. A task finishes when every
+	// one of its own subtasks, every structured checklist item and every
+	// description task-list checkbox is done. Related tasks still influence
+	// the percent bar above, but we do not want to block closing a task that
+	// only depends on its own subtasks because some loosely-linked related
+	// task has outstanding work.
+	subtaskCount := 0
+	hasOpenSubtask := false
+	for _, rt := range relatedTasks {
+		if !isSubtaskRelation[rt.ID] {
+			continue
+		}
+		subtaskCount++
+		if !rt.Done {
+			hasOpenSubtask = true
+		}
+	}
+	hasOpenChecklistItem := false
+	for _, ci := range checklistItems {
+		if !ci.Done {
+			hasOpenChecklistItem = true
+			break
+		}
+	}
+	hasOpenDescriptionItem := false
+	for _, di := range descriptionItems {
+		if !di.Done {
+			hasOpenDescriptionItem = true
+			break
+		}
+	}
+	hasDoneGate := subtaskCount > 0 || len(checklistItems) > 0 || len(descriptionItems) > 0
+	allGatesDone := hasDoneGate && !hasOpenSubtask && !hasOpenChecklistItem && !hasOpenDescriptionItem
 
 	percentChanged := math.Abs(newPercent-parent.PercentDone) >= 0.001
 
@@ -243,15 +338,12 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 		}
 	}
 
-	// Auto-done: when progress reaches 100%, mark the task as done.
-	// When it drops below 100%, mark it as not done (only if the task was
-	// previously auto-completed at 100%).
-	//
-	// This check runs even when percent_done did not change so that a stale
-	// done/percent pair gets reconciled (e.g. percent already at 1.0 but done
-	// still false).
+	// Auto-done: flips when the gate above flips, not when percent_done
+	// crosses 100. Auto-undone still only kicks in when the task was
+	// previously auto-completed (parent.PercentDone >= 1.0) so manual
+	// done-toggles on leaf tasks are left alone.
 	doneChanged := false
-	if newPercent >= 1.0 && !parent.Done {
+	if allGatesDone && !parent.Done {
 		now := time.Now()
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
 			Done:   true,
@@ -264,8 +356,8 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 			return err
 		}
 		doneChanged = true
-	} else if newPercent < 1.0 && parent.Done && parent.PercentDone >= 1.0 {
-		// The parent was done at 100% — undo it since progress dropped.
+	} else if hasDoneGate && !allGatesDone && parent.Done && parent.PercentDone >= 1.0 {
+		// Previously auto-completed — undo it since a gate reopened.
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{
 			Done:   false,
 			DoneAt: time.Time{},
@@ -281,7 +373,7 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 
 	// When auto-done, cascade downward so weighted children that summed to
 	// 100% don't leave unweighted siblings open.
-	if doneChanged && newPercent >= 1.0 {
+	if doneChanged && allGatesDone {
 		if err := markChildrenDone(s, parentID, true, nil); err != nil {
 			return err
 		}
@@ -315,10 +407,11 @@ func markChildrenDone(s *xorm.Session, taskID int64, done bool, visited map[int6
 	}
 	visited[taskID] = true
 
-	// Find outgoing progress-contributing relations (subtask, related).
+	// Only traverse real subtasks here. Related tasks stay untouched —
+	// they flip to done independently, through their own subtask cascade.
 	relations := []*TaskRelation{}
 	err := s.Where("task_id = ?", taskID).
-		In("relation_kind", progressRelationKinds).
+		In("relation_kind", childDoneCascadeKinds).
 		Find(&relations)
 	if err != nil {
 		return err

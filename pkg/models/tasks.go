@@ -118,7 +118,7 @@ type Task struct {
 	// items embedded on the task (not full subtasks). They may carry a weight that
 	// contributes to the parent task's percent_done, an optional assignee and a
 	// position. When rendered, they inherit the parent task's dates.
-	ChecklistItems []*TaskChecklistItem `xorm:"json null" json:"checklist_items"`
+	ChecklistItems []*TaskChecklistItem `xorm:"jsonb null" json:"checklist_items"`
 
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
@@ -1483,6 +1483,18 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		if err := recalculateRelatedTasksPercentDone(s, t.ID); err != nil {
 			log.Errorf("Could not recalculate related tasks percent_done for task %d: %s", t.ID, err)
 		}
+	}
+
+	// Pull the recomputed percent_done / done / done_at back into t so the
+	// handler's JSON response reflects the freshly-calculated values. Without
+	// this the caller (e.g. Description.vue saving a task-list checkbox edit)
+	// would see a stale percent because recalculateTaskPercentDone writes
+	// directly to the DB and does not touch the in-memory struct.
+	refreshed, rerr := GetTaskByIDSimple(s, t.ID)
+	if rerr == nil {
+		t.PercentDone = refreshed.PercentDone
+		t.Done = refreshed.Done
+		t.DoneAt = refreshed.DoneAt
 	}
 
 	return updateProjectLastUpdated(s, &Project{ID: t.ProjectID})

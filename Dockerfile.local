@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1
+#
+# Production Dockerfile for local builds of the Vikunja fork.
+# Builds the frontend (pnpm) and the backend (CGO+SQLite) on the host
+# architecture and produces a small alpine-based runtime image.
+#
+# Usage:
+#   docker build -f Dockerfile.local -t my-vikunja:latest .
+
+# ---------- frontend ----------
+FROM node:24-alpine AS frontendbuilder
+
+WORKDIR /build
+
+ENV PNPM_CACHE_FOLDER=.cache/pnpm/
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV CYPRESS_INSTALL_BINARY=0
+
+COPY frontend/pnpm-lock.yaml frontend/package.json frontend/.npmrc ./
+COPY frontend/patches ./patches
+RUN npm install -g corepack && corepack enable && \
+    pnpm install --frozen-lockfile
+
+COPY frontend/ ./
+ARG RELEASE_VERSION=dev
+RUN echo "{\"VERSION\": \"${RELEASE_VERSION}\"}" > src/version.json && \
+    pnpm run build
+
+# ---------- backend ----------
+FROM golang:1.25-alpine AS apibuilder
+
+RUN apk add --no-cache gcc musl-dev git
+RUN go install github.com/magefile/mage@latest
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . ./
+COPY --from=frontendbuilder /build/dist ./frontend/dist
+
+ARG RELEASE_VERSION=dev
+ENV RELEASE_VERSION=$RELEASE_VERSION
+ENV CGO_ENABLED=1
+
+RUN mage build:clean && mage build:build
+
+# ---------- runtime ----------
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -g 1000 vikunja && \
+    adduser -D -u 1000 -G vikunja vikunja && \
+    mkdir -p /app/vikunja /db && \
+    chown -R vikunja:vikunja /app/vikunja /db
+
+WORKDIR /app/vikunja
+USER 1000
+
+ENV VIKUNJA_SERVICE_ROOTPATH=/app/vikunja/
+ENV VIKUNJA_DATABASE_TYPE=postgres
+ENV VIKUNJA_DATABASE_PORT=5432
+ENV VIKUNJA_DATABASE_SSLMODE=disable
+ENV VIKUNJA_CORS_ENABLE=false
+
+COPY --from=apibuilder /src/vikunja /app/vikunja/vikunja
+
+EXPOSE 3456
+ENTRYPOINT ["/app/vikunja/vikunja"]

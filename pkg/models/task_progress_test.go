@@ -126,3 +126,66 @@ func TestCalculateWeightedProgress(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractDescriptionChecklistItems(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		wantLen     int
+		wantDone    int
+	}{
+		{
+			name:        "empty description",
+			description: "",
+			wantLen:     0,
+		},
+		{
+			name:        "description without task items",
+			description: `<p>Just some prose, no checkboxes here.</p>`,
+			wantLen:     0,
+		},
+		{
+			name:        "single unchecked item",
+			description: `<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><label><input type="checkbox"></label><div><p>Do the thing</p></div></li></ul>`,
+			wantLen:     1,
+			wantDone:    0,
+		},
+		{
+			name:        "single checked item",
+			description: `<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><label><input type="checkbox" checked></label><div><p>Done</p></div></li></ul>`,
+			wantLen:     1,
+			wantDone:    1,
+		},
+		{
+			name: "mixed list — two done, one open",
+			description: `<ul data-type="taskList">
+<li data-type="taskItem" data-checked="true" data-task-id="a"><p>A</p></li>
+<li data-type="taskItem" data-checked="false" data-task-id="b"><p>B</p></li>
+<li data-type="taskItem" data-checked="true" data-task-id="c"><p>C</p></li>
+</ul>`,
+			wantLen:  3,
+			wantDone: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractDescriptionChecklistItems(tc.description)
+			if len(got) != tc.wantLen {
+				t.Fatalf("extractDescriptionChecklistItems() returned %d items, want %d", len(got), tc.wantLen)
+			}
+			doneCount := 0
+			for _, it := range got {
+				if it.Weight != 0 {
+					t.Errorf("description item must have Weight=0, got %v", it.Weight)
+				}
+				if it.Done {
+					doneCount++
+				}
+			}
+			if doneCount != tc.wantDone {
+				t.Errorf("done count = %d, want %d", doneCount, tc.wantDone)
+			}
+		})
+	}
+}
