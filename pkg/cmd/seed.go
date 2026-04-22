@@ -119,6 +119,45 @@ var seedCmd = &cobra.Command{
 			{Title: "Дизайн", HexColor: "f54242", Desc: "Дизайн и UI/UX задачи"},
 		}
 
+		// setupKanbanView turns the given Kanban view into a manual board with
+		// three default buckets (To do / In progress / Done) and marks the
+		// first as the default and the last as the done bucket. Returns the
+		// default- and done-bucket IDs so the caller can place tasks into the
+		// right column.
+		setupKanbanView := func(view *models.ProjectView) (defaultBucketID, doneBucketID int64) {
+			buckets := []*models.Bucket{
+				{Title: "К выполнению", ProjectViewID: view.ID, Position: 100, CreatedByID: adminID},
+				{Title: "В работе", ProjectViewID: view.ID, Position: 200, CreatedByID: adminID},
+				{Title: "Выполнено", ProjectViewID: view.ID, Position: 300, CreatedByID: adminID},
+			}
+			for _, b := range buckets {
+				if _, err := s.Insert(b); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error creating bucket '%s': %s", b.Title, err)
+				}
+			}
+
+			view.BucketConfigurationMode = models.BucketConfigurationModeManual
+			view.DefaultBucketID = buckets[0].ID
+			view.DoneBucketID = buckets[2].ID
+			if _, err := s.ID(view.ID).
+				Cols("bucket_configuration_mode", "default_bucket_id", "done_bucket_id").
+				Update(view); err != nil {
+				_ = s.Rollback()
+				log.Fatalf("Error updating kanban view %d: %s", view.ID, err)
+			}
+			return buckets[0].ID, buckets[2].ID
+		}
+
+		// projectKanban holds the bucket IDs needed to place a newly inserted
+		// task into the correct kanban column.
+		type projectKanban struct {
+			viewID          int64
+			defaultBucketID int64
+			doneBucketID    int64
+		}
+		kanbanByProject := make(map[int64]projectKanban)
+
 		projectIDs := make([]int64, 3)
 		for i, pd := range projectDefs {
 			p := &models.Project{
@@ -139,37 +178,23 @@ var seedCmd = &cobra.Command{
 
 			// Create default views for each project (List, Gantt, Table, Kanban)
 			views := []*models.ProjectView{
-				{
-					ProjectID: p.ID,
-					Title:     "List",
-					ViewKind:  models.ProjectViewKindList,
-					Position:  100,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Gantt",
-					ViewKind:  models.ProjectViewKindGantt,
-					Position:  200,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Table",
-					ViewKind:  models.ProjectViewKindTable,
-					Position:  300,
-				},
-				{
-					ProjectID: p.ID,
-					Title:     "Kanban",
-					ViewKind:  models.ProjectViewKindKanban,
-					Position:  400,
-				},
+				{ProjectID: p.ID, Title: "List", ViewKind: models.ProjectViewKindList, Position: 100},
+				{ProjectID: p.ID, Title: "Gantt", ViewKind: models.ProjectViewKindGantt, Position: 200},
+				{ProjectID: p.ID, Title: "Table", ViewKind: models.ProjectViewKindTable, Position: 300},
+				{ProjectID: p.ID, Title: "Kanban", ViewKind: models.ProjectViewKindKanban, Position: 400},
 			}
 			for _, v := range views {
-				_, err := s.Insert(v)
-				if err != nil {
+				if _, err := s.Insert(v); err != nil {
 					_ = s.Rollback()
 					log.Fatalf("Error creating view for project %s: %s", pd.Title, err)
 				}
+			}
+			kanbanView := views[3]
+			defaultID, doneID := setupKanbanView(kanbanView)
+			kanbanByProject[p.ID] = projectKanban{
+				viewID:          kanbanView.ID,
+				defaultBucketID: defaultID,
+				doneBucketID:    doneID,
 			}
 		}
 
@@ -393,6 +418,25 @@ var seedCmd = &cobra.Command{
 				_ = s.Rollback()
 				log.Fatalf("Error creating task '%s': %s", td.Title, err)
 			}
+
+			// Pin the task to the Kanban board so it's visible in the
+			// Kanban view (default column for open tasks, done column for
+			// completed ones).
+			if k, ok := kanbanByProject[td.ProjectID]; ok {
+				bucketID := k.defaultBucketID
+				if td.Done {
+					bucketID = k.doneBucketID
+				}
+				tb := &models.TaskBucket{
+					TaskID:        t.ID,
+					BucketID:      bucketID,
+					ProjectViewID: k.viewID,
+				}
+				if _, err := s.Insert(tb); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error placing task '%s' into kanban bucket: %s", td.Title, err)
+				}
+			}
 			fmt.Printf("Created task: %s (color: #%s)\n", td.Title, td.HexColor)
 		}
 
@@ -489,6 +533,32 @@ var seedCmd = &cobra.Command{
 			}
 		}
 
+		// relateAsRelated links two tasks via the "related" kind (symmetrical),
+		// which contributes to percent_done on both sides but must NOT trigger
+		// the auto-done gate. Used by the related-task scenarios below.
+		relateAsRelated := func(aID, bID int64) {
+			rels := []*models.TaskRelation{
+				{
+					TaskID:       aID,
+					OtherTaskID:  bID,
+					RelationKind: models.RelationKindRelated,
+					CreatedByID:  adminID,
+				},
+				{
+					TaskID:       bID,
+					OtherTaskID:  aID,
+					RelationKind: models.RelationKindRelated,
+					CreatedByID:  adminID,
+				},
+			}
+			for _, r := range rels {
+				if _, err := s.Insert(r); err != nil {
+					_ = s.Rollback()
+					log.Fatalf("Error creating related link %d<->%d: %s", r.TaskID, r.OtherTaskID, err)
+				}
+			}
+		}
+
 		// Scenario 1: linear chain of 4 tasks.
 		// Mark the deepest done → каскад вверх должен закрыть все 4.
 		// Снять галочку с любой промежуточной → всё дерево вниз должно открыться.
@@ -556,6 +626,32 @@ var seedCmd = &cobra.Command{
 		kanbanSub := createProgressTask("[Kanban] Единственная подзадача", 0, nil)
 		relate(kanbanRoot, kanbanSub)
 
+		// Scenario 7: related-only — влияет на процент, не закрывает родителя.
+		//   R_host связан как "related" с R_peer.
+		//   У R_peer есть своя подзадача R_peer_sub.
+		//   Отметить R_peer_sub → R_peer авто-done (его собственный гейт),
+		//   процент R_host пересчитается (50% если их двое), но сам R_host
+		//   остаётся открытым, пока его СОБСТВЕННЫЕ подзадачи не закрыты.
+		relHost := createProgressTask("[Related] R_host (host-задача с related)", 0, nil)
+		relHostOwnSub := createProgressTask("[Related] Собственная подзадача R_host", 0, nil)
+		relPeer := createProgressTask("[Related] R_peer (связанная через related)", 0, nil)
+		relPeerSub := createProgressTask("[Related] Подзадача R_peer", 0, nil)
+		relate(relHost, relHostOwnSub)
+		relate(relPeer, relPeerSub)
+		relateAsRelated(relHost, relPeer)
+
+		// Scenario 8: subtask + related gate — проверка нового поведения
+		// авто-done:
+		//   G_root имеет подзадачу G_sub и related-задачу G_rel.
+		//   1) Отметить G_sub → G_root должен авто-закрыться (его гейт — только
+		//      собственные подзадачи), даже если G_rel ещё открыт.
+		//   2) percent_done при этом может быть < 100%, пока G_rel не выполнен.
+		gateRoot := createProgressTask("[Гейт] G_root: закроется по подзадаче, игнорируя related", 0, nil)
+		gateSub := createProgressTask("[Гейт] G_sub (единственная подзадача G_root)", 0, nil)
+		gateRel := createProgressTask("[Гейт] G_rel (related для G_root)", 0, nil)
+		relate(gateRoot, gateSub)
+		relateAsRelated(gateRoot, gateRel)
+
 		fmt.Println("\nProgress-test hierarchies created:")
 		fmt.Printf("  Chain (4 levels):          %v\n", chainIDs)
 		fmt.Printf("  Tree T1={T2,T2b}, T2→T3:   %d, %d, %d, %d\n", tree1, tree2, tree2b, tree3)
@@ -563,6 +659,10 @@ var seedCmd = &cobra.Command{
 		fmt.Printf("  Overflow X=70, Y=70:       %d → %d, %d\n", overflowRoot, ovX, ovY)
 		fmt.Printf("  Mixed checklist + subtask: %d (subtask %d)\n", mixRoot, mixSub)
 		fmt.Printf("  Kanban done-bucket check:  %d → %d\n", kanbanRoot, kanbanSub)
+		fmt.Printf("  Related host+peer:         host=%d (sub=%d), peer=%d (sub=%d)\n",
+			relHost, relHostOwnSub, relPeer, relPeerSub)
+		fmt.Printf("  Subtask+related gate:      root=%d (sub=%d, rel=%d)\n",
+			gateRoot, gateSub, gateRel)
 
 		// Commit the transaction
 		if err := s.Commit(); err != nil {
