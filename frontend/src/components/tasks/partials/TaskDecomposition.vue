@@ -39,8 +39,9 @@
 						label="name"
 						:multiple="true"
 						:disabled="isBusy"
-						@update:model-value="users => handleAssigneesChange(row, users as IUser[])"
 						@search="findUser"
+						@select="(user: IUser) => onAssigneeAdded(row, user)"
+						@remove="(user: IUser) => onAssigneeRemoved(row, user)"
 					>
 						<template #searchResult="{option: user}">
 							<User
@@ -299,32 +300,28 @@ async function onWeightChange(row: SubtaskRow) {
 	}
 }
 
-async function handleAssigneesChange(row: SubtaskRow, users: IUser[]) {
-	const previous = row.assignees
-	row.assignees = users
-
+async function onAssigneeAdded(row: SubtaskRow, user: IUser) {
+	// Multiselect already pushed the user into row.assignees in-place
+	// (it mutates the bound array). For pending rows, that's all we need.
 	if (!row.taskId) {
-		// New row — assignees applied at create time.
 		return
 	}
-
-	const previousIds = new Set(previous.map(u => u.id))
-	const nextIds = new Set(users.map(u => u.id))
-	const added = users.filter(u => !previousIds.has(u.id))
-	const removed = previous.filter(u => !nextIds.has(u.id))
-
-	if (added.length === 0 && removed.length === 0) {
-		return
-	}
-
 	isSaving.value = true
 	try {
-		for (const u of added) {
-			await taskStore.addAssignee({user: u, taskId: row.taskId})
-		}
-		for (const u of removed) {
-			await taskStore.removeAssignee({user: u, taskId: row.taskId})
-		}
+		await taskStore.addAssignee({user, taskId: row.taskId})
+		emit('changed')
+	} finally {
+		isSaving.value = false
+	}
+}
+
+async function onAssigneeRemoved(row: SubtaskRow, user: IUser) {
+	if (!row.taskId) {
+		return
+	}
+	isSaving.value = true
+	try {
+		await taskStore.removeAssignee({user, taskId: row.taskId})
 		emit('changed')
 	} finally {
 		isSaving.value = false
