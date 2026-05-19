@@ -5,6 +5,25 @@
 				<Icon icon="align-left" />
 			</span>
 			{{ $t('task.attributes.description') }}
+			<span
+				v-if="canWrite"
+				class="weight-inline"
+			>
+				<label class="weight-label">{{ $t('task.relation.subtaskWeight') }}:</label>
+				<input
+					v-model.number="weightValue"
+					type="number"
+					min="0"
+					max="100"
+					step="10"
+					class="input weight-input"
+					placeholder="0"
+					@change="saveWeight"
+					@blur="saveWeight"
+					@keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+				>
+				<span class="weight-sign">%</span>
+			</span>
 			<CustomTransition name="fade">
 				<span
 					v-if="loading && saving"
@@ -65,8 +84,10 @@ const emit = defineEmits<{
 
 const description = ref<string>('')
 const hasChanges = ref(false)
+const weightValue = ref<number>(0)
 watchEffect(() => {
 	description.value = props.modelValue.description
+	weightValue.value = Number(props.modelValue.subtaskWeight) || 0
 	hasChanges.value = false
 })
 
@@ -149,6 +170,27 @@ async function save() {
 	}
 }
 
+async function saveWeight() {
+	const parsed = Number(weightValue.value)
+	const weight = Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 100) : 0
+	if (weight === (Number(props.modelValue.subtaskWeight) || 0)) {
+		return
+	}
+	weightValue.value = weight
+	try {
+		const updated = await taskStore.update({
+			...props.modelValue,
+			subtaskWeight: weight,
+		})
+		emit('update:modelValue', updated)
+	} catch (error) {
+		if (error?.response?.status === 404) {
+			return
+		}
+		throw error
+	}
+}
+
 async function uploadCallback(files: File[] | FileList): Promise<string[]> {
 	const uploadPromises: Promise<string>[] = []
 
@@ -170,4 +212,39 @@ async function uploadCallback(files: File[] | FileList): Promise<string[]> {
 	// The icon is not exactly the same length on all sides so we need to hack our way around it.
 	margin-inline-start: 4px;
 }
+
+.weight-inline {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-inline-start: 1rem;
+	font-size: 0.85rem;
+	font-weight: 400;
+	color: var(--grey-600);
+}
+
+.weight-label {
+	color: var(--grey-600);
+}
+
+.weight-input {
+	inline-size: 4.5rem;
+	padding: 0.25rem 0.4rem;
+	font-size: 0.85rem;
+	border: 1px solid var(--border);
+	border-radius: $radius;
+	background: var(--scheme-main);
+	color: var(--text);
+	text-align: center;
+
+	&:focus {
+		border-color: var(--primary);
+		outline: none;
+	}
+}
+
+.weight-sign {
+	color: var(--grey-500);
+}
 </style>
+

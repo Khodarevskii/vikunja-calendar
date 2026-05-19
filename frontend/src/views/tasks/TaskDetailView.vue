@@ -427,7 +427,8 @@
 							:task-id="taskId"
 							:project-id="task.projectId"
 							:parent-task="task"
-							@updated="onChecklistUpdated"
+							@created="onChecklistUpdated"
+							@changed="onChecklistUpdated"
 						/>
 					</div>
 
