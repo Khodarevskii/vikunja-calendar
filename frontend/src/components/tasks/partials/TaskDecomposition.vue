@@ -3,87 +3,114 @@
 		<p class="help-text">
 			{{ $t('task.decompose.help') }}
 		</p>
-
-		<div
-			v-if="existingSubtasks.length > 0"
-			class="existing-subtasks"
-		>
+		<div class="subtask-list">
 			<div
-				v-for="subtask in existingSubtasks"
-				:key="subtask.id"
+				v-for="(row, index) in rows"
+				:key="row.key"
 				class="subtask-row"
-				:class="{'is-done': subtask.done}"
+				:class="{'is-done': row.done}"
 			>
-				<span class="row-title">
-					<Icon
-						v-if="subtask.done"
-						icon="check"
-						class="done-icon"
-					/>
-					<RouterLink
-						v-tooltip="subtask.title"
-						class="subtask-link"
-						:class="{'is-strikethrough': subtask.done}"
-						:to="{name: 'task.detail', params: {id: subtask.id}, state: {backdropView: $route.fullPath}}"
+				<span class="row-number">{{ index + 1 }}.</span>
+				<RouterLink
+					v-if="row.taskId"
+					v-tooltip="row.title"
+					class="subtask-title subtask-link"
+					:class="{'is-strikethrough': row.done}"
+					:to="{name: 'task.detail', params: {id: row.taskId}, state: {backdropView: $route.fullPath}}"
+				>
+					{{ row.title }}
+				</RouterLink>
+				<input
+					v-else
+					:ref="el => setInputRef(index, el)"
+					v-model="row.title"
+					type="text"
+					class="input subtask-title"
+					:placeholder="$t('task.decompose.titlePlaceholder')"
+					:disabled="isBusy"
+					@keydown.enter.prevent="addRow(index)"
+				>
+				<div class="assignee-wrapper">
+					<Multiselect
+						v-model="row.assignee"
+						:placeholder="$t('task.decompose.assigneePlaceholder')"
+						:loading="userSearchLoading"
+						:search-results="foundUsers"
+						label="name"
+						:multiple="false"
+						:disabled="isBusy"
+						@search="findUser"
+						@select="(user: IUser) => handleAssigneeSelect(row, user)"
+						@remove="() => handleAssigneeSelect(row, null)"
 					>
-						{{ subtask.title }}
-					</RouterLink>
-				</span>
+						<template #searchResult="{option: user}">
+							<User
+								:avatar-size="24"
+								:show-username="true"
+								:user="(user as IUser)"
+							/>
+						</template>
+					</Multiselect>
+				</div>
 				<div class="weight-wrapper">
 					<input
+						v-model.number="row.weight"
 						type="number"
 						class="input subtask-weight"
 						min="0"
 						max="100"
 						step="10"
-						:value="subtask.subtaskWeight || ''"
-						:disabled="isSaving"
-						placeholder="auto"
-						@change="updateWeight(subtask, ($event.target as HTMLInputElement).value)"
-						@keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+						:disabled="isBusy"
+						@change="onWeightChange(row)"
+						@keydown.enter.prevent="addRow(index)"
 					>
 					<span class="weight-sign">%</span>
 				</div>
 				<BaseButton
+					v-if="rows.length > 1 || row.taskId"
 					class="remove-row"
-					:disabled="isSaving"
-					@click="removeSubtask(subtask)"
+					:disabled="isBusy"
+					@click="removeRow(index)"
 				>
 					<Icon icon="times" />
 				</BaseButton>
 			</div>
-			<div class="weight-summary">
-				{{ $t('task.decompose.totalWeight') }}: {{ totalWeight }}%
-			</div>
 		</div>
-
-		<div class="field">
-			<textarea
-				ref="textareaRef"
-				v-model="subtaskText"
-				class="textarea"
-				:placeholder="$t('task.decompose.placeholder')"
-				rows="6"
-				:disabled="isCreating"
-				@keydown.meta.enter="createSubtasks"
-				@keydown.ctrl.enter="createSubtasks"
-			/>
+		<div class="list-controls">
+			<BaseButton
+				class="add-row-button"
+				:disabled="isBusy"
+				@click="addRow(rows.length - 1)"
+			>
+				<Icon icon="plus" />
+				{{ $t('task.decompose.addRow') }}
+			</BaseButton>
+			<span
+				class="weight-total"
+				:class="{
+					'is-valid': totalWeight === 100,
+					'is-warning': totalWeight > 0 && totalWeight < 100,
+					'is-error': totalWeight > 100,
+				}"
+			>
+				{{ $t('task.decompose.totalWeight') }}: {{ totalWeight }}%
+				<span
+					v-if="totalWeight > 100"
+					class="weight-error-text"
+				>
+					({{ $t('task.decompose.weightExceeded') }})
+				</span>
+			</span>
 		</div>
 		<div class="actions">
 			<XButton
 				:loading="isCreating"
 				:disabled="!canCreate"
 				icon="project-diagram"
-				@click="createSubtasks"
+				@click="createNewSubtasks"
 			>
 				{{ $t('task.decompose.create') }}
 			</XButton>
-			<span
-				v-if="createdCount > 0"
-				class="created-notice has-text-success"
-			>
-				{{ $t('task.decompose.created', {count: createdCount}) }}
-			</span>
 			<span
 				v-if="errorMessage"
 				class="error-notice has-text-danger"
@@ -95,118 +122,245 @@
 </template>
 
 <script setup lang="ts">
-import {ref, computed, nextTick} from 'vue'
+import {ref, reactive, computed, shallowReactive, watch, nextTick, type ComponentPublicInstance} from 'vue'
 import {useI18n} from 'vue-i18n'
+
 import TaskService from '@/services/task'
 import TaskModel from '@/models/task'
 import TaskRelationService from '@/services/taskRelation'
 import TaskRelationModel from '@/models/taskRelation'
+import ProjectUserService from '@/services/projectUsers'
 import {RELATION_KIND} from '@/types/IRelationKind'
+
 import type {ITask} from '@/modelTypes/ITask'
+import type {IUser} from '@/modelTypes/IUser'
+
+import BaseButton from '@/components/base/BaseButton.vue'
+import Multiselect from '@/components/input/Multiselect.vue'
+import User from '@/components/misc/User.vue'
+import {getDisplayName} from '@/models/user'
 import {success} from '@/message'
 import {useTaskStore} from '@/stores/tasks'
-import BaseButton from '@/components/base/BaseButton.vue'
+import {createRandomID} from '@/helpers/randomId'
+
+interface SubtaskRow {
+	key: string
+	taskId: number | null
+	title: string
+	weight: number
+	assignee: IUser | null
+	done: boolean
+}
 
 const props = defineProps<{
 	taskId: ITask['id'],
 	projectId: ITask['projectId'],
 	parentTask?: ITask,
 }>()
+
 const emit = defineEmits<{
 	'created': [tasks: ITask[]],
 	'changed': [],
 }>()
+
 const {t} = useI18n({useScope: 'global'})
 const taskStore = useTaskStore()
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const subtaskText = ref('')
+
+const rows = reactive<SubtaskRow[]>([])
+const inputRefs = ref<Record<number, HTMLInputElement | null>>({})
 const isCreating = ref(false)
 const isSaving = ref(false)
-const createdCount = ref(0)
 const errorMessage = ref('')
 
-const existingSubtasks = computed<ITask[]>(() => {
-	return props.parentTask?.relatedTasks?.[RELATION_KIND.SUBTASK] || []
-})
+const isBusy = computed(() => isCreating.value || isSaving.value)
+
+function setInputRef(index: number, el: HTMLInputElement | Element | ComponentPublicInstance | null) {
+	inputRefs.value[index] = el as HTMLInputElement | null
+}
+
+const projectUserService = shallowReactive(new ProjectUserService())
+const userSearchLoading = computed(() => projectUserService.loading)
+const foundUsers = ref<IUser[]>([])
+
+async function findUser(query: string) {
+	const response = await projectUserService.getAll({projectId: props.projectId}, {s: query}) as IUser[]
+	foundUsers.value = response.map(u => {
+		u.name = getDisplayName(u)
+		return u
+	})
+}
+
+function makeEmptyRow(): SubtaskRow {
+	return {
+		key: createRandomID(12),
+		taskId: null,
+		title: '',
+		weight: 0,
+		assignee: null,
+		done: false,
+	}
+}
+
+function rowFromTask(task: ITask): SubtaskRow {
+	const assignee = task.assignees && task.assignees.length > 0 ? task.assignees[0] : null
+	return {
+		key: `task-${task.id}`,
+		taskId: task.id,
+		title: task.title,
+		weight: Number(task.subtaskWeight) || 0,
+		assignee,
+		done: !!task.done,
+	}
+}
+
+// Sync rows with parentTask.relatedTasks.subtask. Existing tasks become
+// pre-filled rows; one empty row at the end is kept so the user can add new
+// subtasks. Local edits on existing rows are preserved by matching on taskId.
+watch(
+	() => props.parentTask?.relatedTasks?.[RELATION_KIND.SUBTASK],
+	(subtasks) => {
+		const existing = Array.isArray(subtasks) ? subtasks : []
+		const pendingRows = rows.filter(r => r.taskId === null && r.title.trim().length > 0)
+
+		const newRows: SubtaskRow[] = existing.map(t => rowFromTask(t))
+		newRows.push(...pendingRows)
+		if (newRows.length === 0) {
+			newRows.push(makeEmptyRow())
+		}
+		rows.splice(0, rows.length, ...newRows)
+	},
+	{immediate: true, deep: true},
+)
 
 const totalWeight = computed(() => {
-	return existingSubtasks.value.reduce((sum, s) => sum + (Number(s.subtaskWeight) || 0), 0)
+	return rows.reduce((sum, r) => sum + (Number(r.weight) || 0), 0)
 })
 
 const canCreate = computed(() => {
-	const lines = subtaskText.value
-		.split(/[\r\n]+/)
-		.filter(l => l.trim().length > 0)
-	return lines.length > 0
+	return rows.some(r => r.taskId === null && r.title.trim().length > 0)
 })
 
-function focus() {
-	nextTick(() => textareaRef.value?.focus())
+function addRow(afterIndex: number) {
+	rows.splice(afterIndex + 1, 0, makeEmptyRow())
+	nextTick(() => {
+		inputRefs.value[afterIndex + 1]?.focus()
+	})
 }
-defineExpose({focus})
 
-async function updateWeight(subtask: ITask, rawValue: string) {
-	const parsed = rawValue === '' ? 0 : Number(rawValue)
+async function removeRow(index: number) {
+	const row = rows[index]
+	if (!row) return
+
+	if (row.taskId) {
+		// Remove the subtask relation from the parent
+		isSaving.value = true
+		try {
+			const taskRelationService = new TaskRelationService()
+			await taskRelationService.delete(new TaskRelationModel({
+				taskId: props.taskId,
+				otherTaskId: row.taskId,
+				relationKind: RELATION_KIND.SUBTASK,
+			}))
+			rows.splice(index, 1)
+			if (rows.length === 0) {
+				rows.push(makeEmptyRow())
+			}
+			emit('changed')
+		} finally {
+			isSaving.value = false
+		}
+		return
+	}
+
+	rows.splice(index, 1)
+	if (rows.length === 0) {
+		rows.push(makeEmptyRow())
+	}
+}
+
+async function onWeightChange(row: SubtaskRow) {
+	if (!row.taskId) {
+		return
+	}
+	const parsed = Number(row.weight)
 	const weight = Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 100) : 0
-	if (weight === (Number(subtask.subtaskWeight) || 0)) {
+	row.weight = weight
+
+	const existing = (props.parentTask?.relatedTasks?.[RELATION_KIND.SUBTASK] || [])
+		.find(t => t.id === row.taskId)
+	if (!existing || weight === (Number(existing.subtaskWeight) || 0)) {
 		return
 	}
+
 	isSaving.value = true
 	try {
-		await taskStore.update(new TaskModel({...subtask, subtaskWeight: weight}))
+		await taskStore.update(new TaskModel({...existing, subtaskWeight: weight}))
 		emit('changed')
 	} finally {
 		isSaving.value = false
 	}
 }
 
-async function removeSubtask(subtask: ITask) {
+async function handleAssigneeSelect(row: SubtaskRow, user: IUser | null) {
+	row.assignee = user
+	if (!row.taskId) {
+		return
+	}
+
 	isSaving.value = true
 	try {
-		const taskRelationService = new TaskRelationService()
-		await taskRelationService.delete(new TaskRelationModel({
-			taskId: props.taskId,
-			otherTaskId: subtask.id,
-			relationKind: RELATION_KIND.SUBTASK,
-		}))
+		if (user) {
+			await taskStore.addAssignee({user, taskId: row.taskId})
+		} else {
+			// Remove every current assignee on the subtask.
+			const existing = (props.parentTask?.relatedTasks?.[RELATION_KIND.SUBTASK] || [])
+				.find(t => t.id === row.taskId)
+			const current = existing?.assignees || []
+			for (const a of current) {
+				await taskStore.removeAssignee({user: a, taskId: row.taskId})
+			}
+		}
 		emit('changed')
 	} finally {
 		isSaving.value = false
 	}
 }
 
-async function createSubtasks() {
-	if (!canCreate.value || isCreating.value) {
+async function createNewSubtasks() {
+	const pending = rows.filter(r => r.taskId === null && r.title.trim().length > 0)
+	if (pending.length === 0 || isCreating.value) {
 		return
 	}
-	const lines = subtaskText.value
-		.split(/[\r\n]+/)
-		.filter(l => l.trim().length > 0)
-		.map(l => l.trim())
-	if (lines.length === 0) {
-		return
-	}
+
 	isCreating.value = true
 	errorMessage.value = ''
-	createdCount.value = 0
+
 	const taskService = new TaskService()
 	const taskRelationService = new TaskRelationService()
 	const createdTasks: ITask[] = []
+
 	try {
-		for (const title of lines) {
+		for (const row of pending) {
+			const weight = Number(row.weight) || 0
 			const newTask = await taskService.create(new TaskModel({
-				title,
+				title: row.title.trim(),
 				projectId: props.projectId,
+				subtaskWeight: weight,
 			}))
+
 			await taskRelationService.create(new TaskRelationModel({
 				taskId: props.taskId,
 				otherTaskId: newTask.id,
 				relationKind: RELATION_KIND.SUBTASK,
 			}))
+
+			if (row.assignee) {
+				await taskStore.addAssignee({user: row.assignee, taskId: newTask.id})
+			}
+
 			createdTasks.push(newTask)
 		}
-		createdCount.value = createdTasks.length
-		subtaskText.value = ''
+
 		emit('created', createdTasks)
 		success({message: t('task.decompose.success', {count: createdTasks.length})})
 	} catch (e) {
@@ -216,6 +370,15 @@ async function createSubtasks() {
 		isCreating.value = false
 	}
 }
+
+function focus() {
+	nextTick(() => {
+		const idx = rows.findIndex(r => r.taskId === null)
+		if (idx >= 0) inputRefs.value[idx]?.focus()
+	})
+}
+
+defineExpose({focus})
 </script>
 
 <style lang="scss" scoped>
@@ -223,45 +386,37 @@ async function createSubtasks() {
 	.help-text {
 		color: var(--grey-500);
 		font-size: 0.9rem;
-		margin-block-end: 0.5rem;
+		margin-block-end: 0.75rem;
 	}
 
-	.existing-subtasks {
+	.subtask-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
-		margin-block-end: 1rem;
-		padding-block-end: 0.75rem;
-		border-block-end: 1px solid var(--border);
+		gap: 0.5rem;
 	}
 
 	.subtask-row {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-
-		&.is-done .row-title {
-			color: var(--grey-500);
-		}
 	}
 
-	.row-title {
+	.row-number {
+		color: var(--grey-400);
+		font-size: 0.85rem;
+		min-inline-size: 1.5rem;
+		text-align: end;
+	}
+
+	.subtask-title {
 		flex: 1;
 		min-inline-size: 0;
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		overflow: hidden;
-	}
-
-	.done-icon {
-		color: var(--success);
-		flex-shrink: 0;
 	}
 
 	.subtask-link {
 		color: var(--text);
 		text-decoration: none;
+		padding: 0.4rem 0.5rem;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -276,6 +431,22 @@ async function createSubtasks() {
 		}
 	}
 
+	.assignee-wrapper {
+		flex-shrink: 0;
+		inline-size: 10rem;
+
+		:deep(.multiselect) {
+			.input-wrapper {
+				min-block-size: auto;
+				padding: 0.2rem 0.4rem;
+			}
+
+			.input {
+				font-size: 0.85rem;
+			}
+		}
+	}
+
 	.weight-wrapper {
 		display: flex;
 		align-items: center;
@@ -284,24 +455,32 @@ async function createSubtasks() {
 	}
 
 	.subtask-weight {
-		inline-size: 4.5rem;
-		padding: 0.3rem 0.4rem;
+		inline-size: 4rem;
 		text-align: center;
-		font-size: 0.85rem;
+	}
+
+	.weight-sign {
+		color: var(--grey-500);
+	}
+
+	.input {
+		padding: 0.4rem 0.5rem;
 		border: 1px solid var(--border);
 		border-radius: $radius;
 		background: var(--scheme-main);
 		color: var(--text);
+		font-size: 0.9rem;
+		transition: border-color $transition;
 
 		&:focus {
 			border-color: var(--primary);
 			outline: none;
 		}
-	}
 
-	.weight-sign {
-		color: var(--grey-500);
-		font-size: 0.85rem;
+		&::placeholder {
+			color: var(--grey-400);
+			font-style: italic;
+		}
 	}
 
 	.remove-row {
@@ -311,41 +490,54 @@ async function createSubtasks() {
 		line-height: 1;
 	}
 
-	.weight-summary {
-		font-size: 0.85rem;
-		color: var(--grey-600);
-		font-weight: 600;
-		text-align: end;
+	.list-controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-block-start: 0.5rem;
 	}
 
-	.textarea {
-		font-family: monospace;
-		font-size: 0.9rem;
-		resize: vertical;
-		min-block-size: 100px;
-		inline-size: 100%;
-		padding: 0.75rem;
-		border: 1px solid var(--border);
-		border-radius: $radius;
-		background: var(--scheme-main);
-		color: var(--text);
-		transition: border-color $transition;
-		&:focus {
-			border-color: var(--primary);
-			outline: none;
-		}
-		&::placeholder {
-			color: var(--grey-400);
-			font-style: italic;
+	.add-row-button {
+		color: var(--primary);
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+
+		&[disabled] {
+			opacity: 0.5;
+			cursor: not-allowed;
 		}
 	}
+
+	.weight-total {
+		font-size: 0.85rem;
+		font-weight: 600;
+
+		&.is-valid {
+			color: var(--success);
+		}
+
+		&.is-warning {
+			color: var(--warning);
+		}
+
+		&.is-error {
+			color: var(--danger);
+		}
+	}
+
+	.weight-error-text {
+		font-weight: 400;
+	}
+
 	.actions {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		margin-block-start: 0.5rem;
+		margin-block-start: 0.75rem;
 	}
-	.created-notice,
+
 	.error-notice {
 		font-size: 0.85rem;
 	}
