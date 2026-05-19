@@ -32,16 +32,15 @@
 				>
 				<div class="assignee-wrapper">
 					<Multiselect
-						v-model="row.assignee"
+						:model-value="row.assignees"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
 						:loading="userSearchLoading"
 						:search-results="foundUsers"
 						label="name"
-						:multiple="false"
+						:multiple="true"
 						:disabled="isBusy"
+						@update:model-value="users => handleAssigneesChange(row, users as IUser[])"
 						@search="findUser"
-						@select="(user: IUser) => handleAssigneeSelect(row, user)"
-						@remove="() => handleAssigneeSelect(row, null)"
 					>
 						<template #searchResult="{option: user}">
 							<User
@@ -148,7 +147,7 @@ interface SubtaskRow {
 	taskId: number | null
 	title: string
 	weight: number
-	assignee: IUser | null
+	assignees: IUser[]
 	done: boolean
 }
 
@@ -196,19 +195,18 @@ function makeEmptyRow(): SubtaskRow {
 		taskId: null,
 		title: '',
 		weight: 0,
-		assignee: null,
+		assignees: [],
 		done: false,
 	}
 }
 
 function rowFromTask(task: ITask): SubtaskRow {
-	const assignee = task.assignees && task.assignees.length > 0 ? task.assignees[0] : null
 	return {
 		key: `task-${task.id}`,
 		taskId: task.id,
 		title: task.title,
 		weight: Number(task.subtaskWeight) || 0,
-		assignee,
+		assignees: Array.isArray(task.assignees) ? [...task.assignees] : [],
 		done: !!task.done,
 	}
 }
@@ -301,24 +299,31 @@ async function onWeightChange(row: SubtaskRow) {
 	}
 }
 
-async function handleAssigneeSelect(row: SubtaskRow, user: IUser | null) {
-	row.assignee = user
+async function handleAssigneesChange(row: SubtaskRow, users: IUser[]) {
+	const previous = row.assignees
+	row.assignees = users
+
 	if (!row.taskId) {
+		// New row — assignees applied at create time.
+		return
+	}
+
+	const previousIds = new Set(previous.map(u => u.id))
+	const nextIds = new Set(users.map(u => u.id))
+	const added = users.filter(u => !previousIds.has(u.id))
+	const removed = previous.filter(u => !nextIds.has(u.id))
+
+	if (added.length === 0 && removed.length === 0) {
 		return
 	}
 
 	isSaving.value = true
 	try {
-		if (user) {
-			await taskStore.addAssignee({user, taskId: row.taskId})
-		} else {
-			// Remove every current assignee on the subtask.
-			const existing = (props.parentTask?.relatedTasks?.[RELATION_KIND.SUBTASK] || [])
-				.find(t => t.id === row.taskId)
-			const current = existing?.assignees || []
-			for (const a of current) {
-				await taskStore.removeAssignee({user: a, taskId: row.taskId})
-			}
+		for (const u of added) {
+			await taskStore.addAssignee({user: u, taskId: row.taskId})
+		}
+		for (const u of removed) {
+			await taskStore.removeAssignee({user: u, taskId: row.taskId})
 		}
 		emit('changed')
 	} finally {
@@ -354,11 +359,21 @@ async function createNewSubtasks() {
 				relationKind: RELATION_KIND.SUBTASK,
 			}))
 
-			if (row.assignee) {
-				await taskStore.addAssignee({user: row.assignee, taskId: newTask.id})
+			for (const u of row.assignees) {
+				await taskStore.addAssignee({user: u, taskId: newTask.id})
 			}
 
 			createdTasks.push(newTask)
+		}
+
+		// Clear the pending rows so they don't get re-rendered alongside
+		// the freshly fetched existing subtasks when the parent reloads.
+		for (const row of pending) {
+			const idx = rows.indexOf(row)
+			if (idx >= 0) rows.splice(idx, 1)
+		}
+		if (rows.length === 0 || rows.every(r => r.taskId !== null)) {
+			rows.push(makeEmptyRow())
 		}
 
 		emit('created', createdTasks)
