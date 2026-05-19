@@ -33,16 +33,29 @@
 				<div class="assignee-wrapper">
 					<Multiselect
 						:model-value="row.assignees"
+						class="assignee-multiselect"
+						:class="{'has-assignees': row.assignees.length > 0}"
 						:placeholder="$t('task.decompose.assigneePlaceholder')"
+						:select-placeholder="$t('task.assignee.selectPlaceholder')"
 						:loading="userSearchLoading"
 						:search-results="foundUsers"
 						label="name"
 						:multiple="true"
+						:autocomplete-enabled="false"
 						:disabled="isBusy"
 						@search="findUser"
 						@select="(user: IUser) => onAssigneeAdded(row, user)"
 						@remove="(user: IUser) => onAssigneeRemoved(row, user)"
 					>
+						<template #items="{items}">
+							<AssigneeList
+								:assignees="items"
+								:avatar-size="24"
+								:disabled="isBusy"
+								can-remove
+								@remove="(user: IUser) => onAssigneeRemoved(row, user)"
+							/>
+						</template>
 						<template #searchResult="{option: user}">
 							<User
 								:avatar-size="24"
@@ -138,6 +151,7 @@ import type {IUser} from '@/modelTypes/IUser'
 import BaseButton from '@/components/base/BaseButton.vue'
 import Multiselect from '@/components/input/Multiselect.vue'
 import User from '@/components/misc/User.vue'
+import AssigneeList from '@/components/tasks/partials/AssigneeList.vue'
 import {getDisplayName} from '@/models/user'
 import {success} from '@/message'
 import {useTaskStore} from '@/stores/tasks'
