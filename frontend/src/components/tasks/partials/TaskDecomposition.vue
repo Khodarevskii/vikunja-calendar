@@ -152,6 +152,7 @@ import Multiselect from '@/components/input/Multiselect.vue'
 import User from '@/components/misc/User.vue'
 import {getDisplayName} from '@/models/user'
 import {success} from '@/message'
+import {createRandomID} from '@/helpers/randomId'
 
 interface ChecklistRow extends ITaskChecklistItem {
 	assignee?: IUser | null
@@ -171,7 +172,7 @@ const {t} = useI18n({useScope: 'global'})
 
 function makeRow(overrides: Partial<ChecklistRow> = {}): ChecklistRow {
 	return {
-		id: overrides.id ?? crypto.randomUUID(),
+		id: overrides.id ?? createRandomID(16),
 		title: overrides.title ?? '',
 		weight: overrides.weight ?? 0,
 		done: overrides.done ?? false,
