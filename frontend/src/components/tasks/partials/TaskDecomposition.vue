@@ -315,8 +315,20 @@ async function onWeightChange(row: SubtaskRow) {
 }
 
 async function onAssigneeAdded(row: SubtaskRow, user: IUser) {
-	// Multiselect already pushed the user into row.assignees in-place
-	// (it mutates the bound array). For pending rows, that's all we need.
+	// Multiselect already pushed the user into row.assignees in-place.
+	// If the user was already assigned, the array now holds duplicates —
+	// strip them and skip the API call.
+	const occurrences = row.assignees.filter(u => u.id === user.id).length
+	if (occurrences > 1) {
+		let kept = false
+		row.assignees = row.assignees.filter(u => {
+			if (u.id !== user.id) return true
+			if (!kept) { kept = true; return true }
+			return false
+		})
+		return
+	}
+
 	if (!row.taskId) {
 		return
 	}
