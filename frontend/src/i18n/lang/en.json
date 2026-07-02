@@ -1017,6 +1017,26 @@
       "updated": "Subtasks updated successfully.",
       "error": "An error occurred while creating subtasks."
     },
+    "feedback": {
+      "action": "Feedback",
+      "actionShort": "FB",
+      "heading": "Feedback",
+      "description": "Ask specific people for feedback before you close this task. Adding the first reviewer activates feedback mode and makes you the manager: only you will be able to close the task from that point.",
+      "managerLabel": "Manager",
+      "addReviewer": "Add a user to the feedback list…",
+      "disable": "Disable feedback mode",
+      "modalTitle": "Send feedback",
+      "textPlaceholder": "Describe how the task went…",
+      "dropHint": "Drop files here",
+      "pickFile": "Choose a file",
+      "send": "Send",
+      "sent": "Feedback was sent to the manager.",
+      "tooltip": {
+        "manager": "You are the feedback manager and can close this task.",
+        "reviewer": "Send your feedback to close your part.",
+        "blocked": "Only the feedback manager can close this task."
+      }
+    },
     "reminder": {
       "before": "{amount} {unit} before {type}",
       "after": "{amount} {unit} after {type}",

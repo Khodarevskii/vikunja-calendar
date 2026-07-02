@@ -48,6 +48,9 @@ export interface ITask extends IAbstract {
 	percentDone: number
 	subtaskWeight: number
 	checklistItems: ITaskChecklistItem[]
+	feedbackRequested: boolean
+	feedbackManagerId: number
+	feedbackReviewers: IUser[]
 	relatedTasks: Partial<Record<IRelationKind, ITask[]>>
 	attachments: IAttachment[]
 	coverImageAttachmentId: IAttachment['id'] | null

@@ -432,6 +432,19 @@
 						/>
 					</div>
 
+					<!-- Task Feedback -->
+					<div
+						v-if="activeFields.feedback"
+						class="content details"
+					>
+						<TaskFeedback
+							:ref="e => setFieldRef('feedback', e)"
+							:task="task"
+							:project-id="task.projectId"
+							@changed="onChecklistUpdated"
+						/>
+					</div>
+
 					<!-- Move Task -->
 					<div
 						v-if="activeFields.moveProject"
@@ -478,14 +491,22 @@
 					<template v-if="canWrite">
 						<XButton
 							v-shortcut="'t'"
-							:class="{'is-pending': !task.done}"
+							v-tooltip="doneButtonTooltip"
+							:class="{'is-pending': !task.done, 'is-disabled-look': doneButtonBlocked}"
 							class="button--mark-done"
 							icon="check-double"
 							variant="secondary"
-							@click="toggleTaskDone()"
+							:disabled="doneButtonBlocked"
+							@click="handleDoneClick"
 						>
 							{{ task.done ? $t('task.detail.undone') : $t('task.detail.done') }}
 						</XButton>
+						<TaskFeedbackModal
+							:enabled="feedbackModalOpen"
+							:task="task"
+							@close="feedbackModalOpen = false"
+							@submitted="onFeedbackSubmitted"
+						/>
 						<TaskSubscription
 							entity="task"
 							:entity-id="task.id"
@@ -579,6 +600,16 @@
 							@click="setFieldActive('decompose')"
 						>
 							{{ $t('task.decompose.action') }}
+						</XButton>
+						<XButton
+							v-tooltip="$t('task.feedback.action')"
+							variant="secondary"
+							icon="comments"
+							class="button--feedback"
+							@click="setFieldActive('feedback')"
+						>
+							<span class="feedback-label-full">{{ $t('task.feedback.action') }}</span>
+							<span class="feedback-label-short">{{ $t('task.feedback.actionShort') }}</span>
 						</XButton>
 						<XButton
 							v-shortcut="'m'"
@@ -709,6 +740,8 @@ import Comments from '@/components/tasks/partials/Comments.vue'
 import CreatedUpdated from '@/components/tasks/partials/CreatedUpdated.vue'
 import Datepicker from '@/components/input/Datepicker.vue'
 import Description from '@/components/tasks/partials/Description.vue'
+import TaskFeedback from '@/components/tasks/partials/TaskFeedback.vue'
+import TaskFeedbackModal from '@/components/tasks/partials/TaskFeedbackModal.vue'
 import EditAssignees from '@/components/tasks/partials/EditAssignees.vue'
 import EditLabels from '@/components/tasks/partials/EditLabels.vue'
 import Heading from '@/components/tasks/partials/Heading.vue'
@@ -1065,6 +1098,7 @@ type FieldType =
 	| 'decompose'
 	| 'dueDate'
 	| 'endDate'
+	| 'feedback'
 	| 'labels'
 	| 'moveProject'
 	| 'percentDone'
@@ -1082,6 +1116,7 @@ const activeFields: { [type in FieldType]: boolean } = reactive({
 	decompose: false,
 	dueDate: false,
 	endDate: false,
+	feedback: false,
 	labels: false,
 	moveProject: false,
 	percentDone: false,
@@ -1110,6 +1145,7 @@ function setActiveFields() {
 	activeFields.repeatAfter = task.value.repeatAfter?.amount > 0 || task.value.repeatMode !== TASK_REPEAT_MODES.REPEAT_MODE_DEFAULT
 	activeFields.startDate = task.value.startDate !== null
 	activeFields.dashboardCheck = isDashboardCheckedToday.value
+	activeFields.feedback = task.value.feedbackRequested || activeFields.feedback
 }
 
 const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive({
@@ -1120,6 +1156,7 @@ const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive(
 	decompose: null,
 	dueDate: null,
 	endDate: null,
+	feedback: null,
 	labels: null,
 	moveProject: null,
 	percentDone: null,
@@ -1211,6 +1248,44 @@ async function deleteTask() {
 	await taskStore.delete(task.value)
 	success({message: t('task.detail.deleteSuccess')})
 	router.push({name: 'project.index', params: {projectId: task.value.projectId}})
+}
+
+const feedbackModalOpen = ref(false)
+
+// Roles for the current viewer relative to the task's feedback state.
+const currentUserId = computed(() => authStore.info?.id || 0)
+const isFeedbackManager = computed(() =>
+	task.value.feedbackRequested && task.value.feedbackManagerId === currentUserId.value,
+)
+const isFeedbackReviewer = computed(() =>
+	task.value.feedbackRequested &&
+	(task.value.feedbackReviewers || []).some(u => u.id === currentUserId.value),
+)
+// Everyone who is neither the manager nor a reviewer sees a disabled-looking
+// "Done" button that does nothing while feedback mode is on.
+const doneButtonBlocked = computed(() =>
+	task.value.feedbackRequested && !isFeedbackManager.value && !isFeedbackReviewer.value,
+)
+const doneButtonTooltip = computed(() => {
+	if (!task.value.feedbackRequested) return ''
+	if (isFeedbackManager.value) return t('task.feedback.tooltip.manager')
+	if (isFeedbackReviewer.value) return t('task.feedback.tooltip.reviewer')
+	return t('task.feedback.tooltip.blocked')
+})
+
+function handleDoneClick() {
+	if (doneButtonBlocked.value) return
+	if (task.value.feedbackRequested && isFeedbackReviewer.value && !isFeedbackManager.value) {
+		feedbackModalOpen.value = true
+		return
+	}
+	toggleTaskDone()
+}
+
+async function onFeedbackSubmitted() {
+	// Refresh the task so the submitted-at bookkeeping stays in sync with the
+	// server (a future iteration may persist submissions).
+	await onChecklistUpdated()
 }
 
 async function toggleTaskDone() {
@@ -1686,6 +1761,23 @@ h3 .button {
 				cursor: not-allowed;
 			}
 		}
+	}
+}
+
+.button--mark-done.is-disabled-look {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.button--feedback {
+	.feedback-label-short { display: none; }
+}
+
+// Collapse the label to "ОС" when the sidebar becomes too narrow.
+@media screen and (max-width: 900px) {
+	.button--feedback {
+		.feedback-label-full { display: none; }
+		.feedback-label-short { display: inline; }
 	}
 }
 
