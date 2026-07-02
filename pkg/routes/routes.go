@@ -474,6 +474,21 @@ func registerAPIRoutes(a *echo.Group) {
 	a.DELETE("/tasks/:projecttask/assignees/:user", assigneeTaskHandler.DeleteWeb)
 	a.GET("/tasks/:projecttask/assignees", assigneeTaskHandler.ReadAllWeb)
 
+	feedbackReviewerHandler := &handler.WebHandler{
+		EmptyStruct: func() handler.CObject {
+			return &models.TaskFeedbackReviewer{}
+		},
+	}
+	a.PUT("/tasks/:projecttask/feedback/reviewers", feedbackReviewerHandler.CreateWeb)
+	a.DELETE("/tasks/:projecttask/feedback/reviewers/:user", feedbackReviewerHandler.DeleteWeb)
+
+	feedbackSubmissionHandler := &handler.WebHandler{
+		EmptyStruct: func() handler.CObject {
+			return &models.TaskFeedbackSubmission{}
+		},
+	}
+	a.POST("/tasks/:projecttask/feedback/submit", feedbackSubmissionHandler.CreateWeb)
+
 	bulkAssigneeHandler := &handler.WebHandler{
 		EmptyStruct: func() handler.CObject {
 			return &models.BulkAssignees{}

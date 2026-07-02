@@ -342,7 +342,17 @@ func recalculateTaskPercentDone(s *xorm.Session, parentID int64) error {
 	// crosses 100. Auto-undone still only kicks in when the task was
 	// previously auto-completed (parent.PercentDone >= 1.0) so manual
 	// done-toggles on leaf tasks are left alone.
+	// While the parent is in feedback mode, done stays fully manual —
+	// only the feedback manager closes the task.
 	doneChanged := false
+	if parent.FeedbackRequested {
+		if percentChanged || doneChanged {
+			if err := recalculateRelatedTasksPercentDone(s, parentID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if allGatesDone && !parent.Done {
 		now := time.Now()
 		_, err = s.ID(parent.ID).Cols("done", "done_at").Update(&Task{

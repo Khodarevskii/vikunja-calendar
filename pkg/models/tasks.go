@@ -702,6 +702,11 @@ func addMoreInfoToTasks(s *xorm.Session, taskMap map[int64]*Task, a web.Auth, vi
 		return
 	}
 
+	err = addFeedbackReviewersToTasks(s, taskIDs, taskMap)
+	if err != nil {
+		return
+	}
+
 	users, err := getUsersOrLinkSharesFromIDs(s, userIDs)
 	if err != nil {
 		return
@@ -1141,6 +1146,18 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	// Remember the original subtask weight so we can detect whether it
 	// changed even after ot has been mutated below.
 	originalSubtaskWeight := ot.SubtaskWeight
+
+	// While a task is in feedback mode, only the feedback manager may flip
+	// Done. Silently keep the previous Done state for anyone else — the
+	// frontend already greys the button, this guard is defence in depth.
+	if ot.FeedbackRequested && t.Done != ot.Done && a.GetID() != ot.FeedbackManagerID {
+		t.Done = ot.Done
+		t.DoneAt = ot.DoneAt
+	}
+
+	// Preserve feedback fields unless the caller explicitly changed them.
+	t.FeedbackRequested = ot.FeedbackRequested
+	t.FeedbackManagerID = ot.FeedbackManagerID
 
 	if t.ProjectID == 0 {
 		t.ProjectID = ot.ProjectID

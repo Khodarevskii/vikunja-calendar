@@ -100,6 +100,15 @@
                 "overdue_since": "since %[1]s",
                 "overdue_now": "now",
                 "overdue": "overdue %[1]s"
+            },
+            "feedback_requested": {
+                "subject": "%[1]s expects feedback from you on \"%[2]s\" (%[3]s)",
+                "message": "%[1]s has asked you to send feedback once you finish the task \"%[2]s\"."
+            },
+            "feedback_submitted": {
+                "subject": "%[1]s sent feedback on \"%[2]s\" (%[3]s)",
+                "message": "%[1]s sent the following feedback on the task \"%[2]s\":",
+                "attachment": "Attached file:"
             }
         },
         "project": {

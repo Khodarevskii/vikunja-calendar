@@ -415,3 +415,63 @@ func (n *DataExportReadyNotification) ToDB() interface{} {
 func (n *DataExportReadyNotification) Name() string {
 	return "data.export.ready"
 }
+
+// TaskFeedbackRequestedNotification is sent to a user when they are added as
+// a reviewer on a task in feedback mode.
+type TaskFeedbackRequestedNotification struct {
+	Manager *user.User `json:"manager"`
+	Task    *Task      `json:"task"`
+	Target  *user.User `json:"-"`
+}
+
+// ToMail renders the email body.
+func (n *TaskFeedbackRequestedNotification) ToMail(lang string) *notifications.Mail {
+	return notifications.NewMail().
+		Subject(i18n.T(lang, "notifications.task.feedback_requested.subject", n.Manager.GetName(), n.Task.Title, n.Task.GetFullIdentifier())).
+		Greeting(i18n.T(lang, "notifications.greeting", n.Target.GetName())).
+		Line(i18n.T(lang, "notifications.task.feedback_requested.message", n.Manager.GetName(), n.Task.Title)).
+		Action(i18n.T(lang, "notifications.common.actions.open_task"), n.Task.GetFrontendURL())
+}
+
+// ToDB returns the DB representation. nil = do not persist.
+func (n *TaskFeedbackRequestedNotification) ToDB() interface{} { return n }
+
+// Name returns the notification name.
+func (n *TaskFeedbackRequestedNotification) Name() string { return "task.feedback.requested" }
+
+// ThreadID returns the thread ID for email threading.
+func (n *TaskFeedbackRequestedNotification) ThreadID() string { return getThreadID(n.Task.ID) }
+
+// TaskFeedbackSubmittedNotification is sent to the feedback manager when a
+// reviewer submits feedback.
+type TaskFeedbackSubmittedNotification struct {
+	Submitter     *user.User `json:"submitter"`
+	Task          *Task      `json:"task"`
+	Manager       *user.User `json:"-"`
+	FeedbackText  string     `json:"feedback_text"`
+	AttachmentURL string     `json:"attachment_url,omitempty"`
+}
+
+// ToMail renders the email body.
+func (n *TaskFeedbackSubmittedNotification) ToMail(lang string) *notifications.Mail {
+	m := notifications.NewMail().
+		Subject(i18n.T(lang, "notifications.task.feedback_submitted.subject", n.Submitter.GetName(), n.Task.Title, n.Task.GetFullIdentifier())).
+		Greeting(i18n.T(lang, "notifications.greeting", n.Manager.GetName())).
+		Line(i18n.T(lang, "notifications.task.feedback_submitted.message", n.Submitter.GetName(), n.Task.Title))
+	if n.FeedbackText != "" {
+		m = m.Line("> " + n.FeedbackText)
+	}
+	if n.AttachmentURL != "" {
+		m = m.Line(i18n.T(lang, "notifications.task.feedback_submitted.attachment") + " " + n.AttachmentURL)
+	}
+	return m.Action(i18n.T(lang, "notifications.common.actions.open_task"), n.Task.GetFrontendURL())
+}
+
+// ToDB returns the DB representation.
+func (n *TaskFeedbackSubmittedNotification) ToDB() interface{} { return n }
+
+// Name returns the notification name.
+func (n *TaskFeedbackSubmittedNotification) Name() string { return "task.feedback.submitted" }
+
+// ThreadID returns the thread ID for email threading.
+func (n *TaskFeedbackSubmittedNotification) ThreadID() string { return getThreadID(n.Task.ID) }
