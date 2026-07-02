@@ -227,6 +227,23 @@ function eventTargetsEditor(event: Event | null | undefined): boolean {
 	return false
 }
 
+// Drops that land inside any open modal must not be captured by the
+// task-level attachment uploader — the modal has its own dropzone (e.g.
+// TaskFeedbackModal) which handles files locally.
+function eventTargetsModal(event: Event | null | undefined): boolean {
+	if (!event) return false
+	const target = event.target
+	if (target instanceof HTMLElement && target.closest('.modal-mask')) {
+		return true
+	}
+	if (typeof event.composedPath === 'function') {
+		return event.composedPath().some(el =>
+			el instanceof HTMLElement && el.matches('.modal-mask'),
+		)
+	}
+	return false
+}
+
 const taskStore = useTaskStore()
 const {t} = useI18n({useScope: 'global'})
 
@@ -268,11 +285,22 @@ const {isOverDropZone} = useDropZone(document, {
 			return
 		}
 
+		// Any drop targeting an open modal is that modal's business.
+		if (eventTargetsModal(event)) {
+			return
+		}
+
 		isDraggingFiles.value = true
 		isDragOverEditor.value = eventTargetsEditor(event)
 	},
 	onOver(files, event) {
 		if (!props.editEnabled) {
+			return
+		}
+
+		if (eventTargetsModal(event)) {
+			// Hide the task-level overlay while the cursor is above the modal.
+			resetDragState()
 			return
 		}
 
@@ -296,10 +324,12 @@ const {isOverDropZone} = useDropZone(document, {
 		}
 
 		const dropOverEditor = eventTargetsEditor(event)
+		const dropOverModal = eventTargetsModal(event)
 		resetDragState()
 
-		// Ignore drops over editor - let TipTap handle them
-		if (dropOverEditor || !files || files.length === 0) {
+		// Ignore drops over editor - let TipTap handle them.
+		// Ignore drops over an open modal - the modal handles them itself.
+		if (dropOverEditor || dropOverModal || !files || files.length === 0) {
 			return
 		}
 
