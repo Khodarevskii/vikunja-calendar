@@ -487,7 +487,7 @@ func registerAPIRoutes(a *echo.Group) {
 			return &models.TaskFeedbackSubmission{}
 		},
 	}
-	a.POST("/tasks/:projecttask/feedback/submit", feedbackSubmissionHandler.CreateWeb)
+	a.PUT("/tasks/:projecttask/feedback/submit", feedbackSubmissionHandler.CreateWeb)
 
 	bulkAssigneeHandler := &handler.WebHandler{
 		EmptyStruct: func() handler.CObject {

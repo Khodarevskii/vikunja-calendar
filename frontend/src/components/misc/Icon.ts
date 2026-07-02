@@ -32,6 +32,7 @@ import {
 	faDownload,
 	faEllipsisH,
 	faEllipsisV,
+	faEnvelope,
 	faExclamation,
 	faExclamationCircle,
 	faEye,
@@ -141,6 +142,7 @@ library.add(faCocktail)
 library.add(faCoffee)
 library.add(faCog)
 library.add(faComments)
+library.add(faEnvelope)
 library.add(faCopy)
 library.add(faDownload)
 library.add(faEllipsisH)

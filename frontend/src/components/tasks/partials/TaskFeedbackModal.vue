@@ -46,18 +46,15 @@
 					>
 				</div>
 
-				<ul
+				<div
 					v-if="files.length > 0"
-					class="file-list"
+					class="file-grid"
 				>
-					<li
+					<div
 						v-for="(file, index) in files"
 						:key="index"
+						class="file-tile"
 					>
-						<Icon
-							:icon="iconFor(file.name)"
-							class="file-icon"
-						/>
 						<span class="file-name">{{ file.name }}</span>
 						<span class="file-size">{{ humanSize(file.size) }}</span>
 						<BaseButton
@@ -67,8 +64,8 @@
 						>
 							<Icon icon="times" />
 						</BaseButton>
-					</li>
-				</ul>
+					</div>
+				</div>
 			</div>
 		</template>
 
@@ -160,23 +157,6 @@ function humanSize(bytes: number): string {
 	return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
-// Map common extensions to Font Awesome icons already used elsewhere in the
-// codebase (FA5 free set — icons like file-word, file-pdf, file-image…).
-function iconFor(name: string): string {
-	const ext = name.toLowerCase().split('.').pop() || ''
-	if (['pdf'].includes(ext)) return 'file-pdf'
-	if (['doc', 'docx', 'rtf', 'odt'].includes(ext)) return 'file-word'
-	if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) return 'file-excel'
-	if (['ppt', 'pptx', 'odp'].includes(ext)) return 'file-powerpoint'
-	if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'file-image'
-	if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'file-video'
-	if (['mp3', 'wav', 'flac', 'ogg', 'm4a'].includes(ext)) return 'file-audio'
-	if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) return 'file-archive'
-	if (['txt', 'md', 'log'].includes(ext)) return 'file-alt'
-	if (['js', 'ts', 'tsx', 'vue', 'go', 'py', 'rb', 'php', 'java', 'c', 'cpp', 'h', 'json', 'xml', 'html', 'css', 'sh'].includes(ext)) return 'file-code'
-	return 'file'
-}
-
 async function submit() {
 	if (!canSubmit.value || isSending.value) return
 
@@ -228,8 +208,9 @@ async function submit() {
 	border-radius: $radius;
 	background: var(--scheme-main);
 	color: var(--text);
-	resize: vertical;
-	min-block-size: 120px;
+	resize: none;
+	min-block-size: 140px;
+	max-block-size: 140px;
 	font-size: 0.95rem;
 
 	&:focus {
@@ -263,47 +244,48 @@ async function submit() {
 	font-weight: 600;
 }
 
-.file-list {
-	list-style: none;
-	padding: 0;
-	margin: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 0.35rem;
+.file-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0.5rem;
 
-	li {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.45rem 0.6rem;
-		border: 1px solid var(--border);
-		border-radius: $radius;
-		background: var(--scheme-main);
+	@media screen and (max-width: 640px) {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }
 
-.file-icon {
-	color: var(--primary);
-	flex-shrink: 0;
+.file-tile {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	padding: 0.55rem 1.6rem 0.55rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: $radius;
+	background: var(--scheme-main);
+	min-inline-size: 0;
 }
 
 .file-name {
-	flex: 1;
-	min-inline-size: 0;
+	color: var(--text);
+	font-size: 0.9rem;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--text);
 }
 
 .file-size {
 	color: var(--grey-500);
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 }
 
 .file-remove {
+	position: absolute;
+	inset-block-start: 4px;
+	inset-inline-end: 6px;
 	color: var(--danger);
 	padding: 0.15rem;
 	line-height: 1;
+	font-size: 0.85rem;
 }
 </style>
