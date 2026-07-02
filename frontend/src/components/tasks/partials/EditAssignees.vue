@@ -22,11 +22,25 @@
 			/>
 		</template>
 		<template #searchResult="{option: user}">
-			<User
-				:avatar-size="24"
-				:show-username="true"
-				:user="user"
-			/>
+			<div class="assignee-search-row">
+				<User
+					:avatar-size="24"
+					:show-username="true"
+					:user="user"
+				/>
+				<BaseButton
+					v-tooltip="isAlreadyReviewer(user as IUser)
+						? $t('task.feedback.alreadyReviewer')
+						: $t('task.feedback.addAsReviewer')"
+					class="add-reviewer"
+					:class="{'is-disabled': isAlreadyReviewer(user as IUser)}"
+					:disabled="isAlreadyReviewer(user as IUser)"
+					@click.stop.prevent="addAsReviewer(user as IUser)"
+				>
+					<span class="reviewer-label-full">{{ $t('task.feedback.action') }}</span>
+					<span class="reviewer-label-short">{{ $t('task.feedback.actionShort') }}</span>
+				</BaseButton>
+			</div>
 		</template>
 	</Multiselect>
 </template>
@@ -37,10 +51,12 @@ import {useI18n} from 'vue-i18n'
 
 import User from '@/components/misc/User.vue'
 import Multiselect from '@/components/input/Multiselect.vue'
+import BaseButton from '@/components/base/BaseButton.vue'
 
 import {includesById} from '@/helpers/utils'
 import ProjectUserService from '@/services/projectUsers'
-import {success} from '@/message'
+import {FeedbackReviewerService} from '@/services/taskFeedback'
+import {success, error as msgError} from '@/message'
 import {useTaskStore} from '@/stores/tasks'
 
 import type {IUser} from '@/modelTypes/IUser'
@@ -52,12 +68,16 @@ const props = withDefaults(defineProps<{
 	taskId: number,
 	projectId: number,
 	disabled?: boolean,
+	/** Ids of users already on the feedback reviewer list — greys the envelope button. */
+	feedbackReviewerIds?: number[],
 }>(), {
 	disabled: false,
+	feedbackReviewerIds: () => [],
 })
 
 const emit = defineEmits<{
 	'update:modelValue': [value: IUser[] | undefined],
+	'feedbackReviewerAdded': [user: IUser],
 }>()
 
 const taskStore = useTaskStore()
@@ -107,6 +127,22 @@ async function removeAssignee(user: IUser) {
 	success({message: t('task.assignee.unassignSuccess')})
 }
 
+function isAlreadyReviewer(user: IUser): boolean {
+	return (props.feedbackReviewerIds || []).includes(user.id)
+}
+
+async function addAsReviewer(user: IUser) {
+	if (isAlreadyReviewer(user)) return
+	try {
+		const svc = new FeedbackReviewerService()
+		await svc.create({taskId: props.taskId, userId: user.id})
+		success({message: t('task.feedback.sentToReviewer', {name: getDisplayName(user)})})
+		emit('feedbackReviewerAdded', user)
+	} catch (e) {
+		msgError(e)
+	}
+}
+
 async function findUser(query: string) {
 	const response = await projectUserService.getAll({projectId: props.projectId}, {s: query}) as IUser[]
 
@@ -124,5 +160,59 @@ async function findUser(query: string) {
 <style lang="scss">
 .edit-assignees.has-assignees.multiselect .input {
 	padding-inline-start: 0;
+}
+
+.assignee-search-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	inline-size: 100%;
+}
+
+.add-reviewer {
+	display: inline-flex;
+	align-items: center;
+	color: var(--primary);
+	font-size: 0.85rem;
+	font-weight: 600;
+	padding: 0.2rem 0.55rem;
+	border: 1px solid var(--primary);
+	border-radius: 999px;
+	line-height: 1;
+	flex-shrink: 0;
+	max-inline-size: 100%;
+
+	.reviewer-label-full {
+		display: inline;
+	}
+	.reviewer-label-short {
+		display: none;
+	}
+
+	// Collapse to "ОС" if the surrounding cell is narrow.
+	@container assignee-search-row (max-width: 220px) {
+		.reviewer-label-full { display: none; }
+		.reviewer-label-short { display: inline; }
+	}
+
+	// Fallback for browsers without container queries — same trigger via
+	// screen width once the sidebar becomes cramped.
+	@media screen and (max-width: 640px) {
+		.reviewer-label-full { display: none; }
+		.reviewer-label-short { display: inline; }
+	}
+
+	&.is-disabled,
+	&:disabled {
+		color: var(--grey-400);
+		border-color: var(--grey-400);
+		cursor: not-allowed;
+	}
+}
+
+.assignee-search-row {
+	container-type: inline-size;
+	container-name: assignee-search-row;
 }
 </style>

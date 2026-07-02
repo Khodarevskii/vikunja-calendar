@@ -82,6 +82,8 @@
 								v-model="task.assignees"
 								:project-id="task.projectId"
 								:task-id="task.id"
+								:feedback-reviewer-ids="feedbackReviewerIds"
+								@feedbackReviewerAdded="onChecklistUpdated"
 							/>
 							<AssigneeList
 								v-else
@@ -604,7 +606,7 @@
 						<XButton
 							v-tooltip="$t('task.feedback.action')"
 							variant="secondary"
-							icon="comments"
+							icon="envelope"
 							class="button--feedback"
 							@click="setFieldActive('feedback')"
 						>
@@ -1260,6 +1262,9 @@ const isFeedbackManager = computed(() =>
 const isFeedbackReviewer = computed(() =>
 	task.value.feedbackRequested &&
 	(task.value.feedbackReviewers || []).some(u => u.id === currentUserId.value),
+)
+const feedbackReviewerIds = computed(() =>
+	(task.value.feedbackReviewers || []).map(u => u.id),
 )
 // Everyone who is neither the manager nor a reviewer sees a disabled-looking
 // "Done" button that does nothing while feedback mode is on.

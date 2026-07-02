@@ -2,7 +2,7 @@
 	<div class="task-feedback">
 		<h3>
 			<span class="icon is-grey">
-				<Icon icon="comments" />
+				<Icon icon="envelope" />
 			</span>
 			{{ $t('task.feedback.heading') }}
 		</h3>
