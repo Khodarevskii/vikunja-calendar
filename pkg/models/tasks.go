@@ -120,6 +120,19 @@ type Task struct {
 	// position. When rendered, they inherit the parent task's dates.
 	ChecklistItems []*TaskChecklistItem `xorm:"jsonb null" json:"checklist_items"`
 
+	// FeedbackRequested is true when the task is in "feedback" mode: only the
+	// FeedbackManagerID user can flip Done to true, auto-done cascades are
+	// suppressed, and the reviewers listed in task_feedback_reviewers can
+	// optionally submit a feedback message + attachments via the dedicated
+	// endpoint.
+	FeedbackRequested bool `xorm:"NOT NULL DEFAULT false" json:"feedback_requested"`
+	// FeedbackManagerID is the user who activated feedback mode and is the
+	// only one allowed to close the task while it is on.
+	FeedbackManagerID int64 `xorm:"BIGINT INDEX null default null" json:"feedback_manager_id"`
+	// FeedbackReviewers is the list of users from whom feedback is expected.
+	// Populated on read; managed through the dedicated reviewer endpoints.
+	FeedbackReviewers []*user.User `xorm:"-" json:"feedback_reviewers"`
+
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
 	// The task index, calculated per project
