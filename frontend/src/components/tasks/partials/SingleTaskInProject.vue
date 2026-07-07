@@ -52,6 +52,12 @@
 						class="pis-2 mie-1"
 					/>
 
+					<ControlFrequencyLabel
+						:frequency="task.controlFrequency"
+						:done="task.done"
+						class="mie-1"
+					/>
+
 					<TaskGlanceTooltip :task="task">
 						<RouterLink
 							ref="taskLinkRef"
@@ -198,6 +204,7 @@ import TaskModel, {getHexColor} from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 
 import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
+import ControlFrequencyLabel from '@/components/tasks/partials/ControlFrequencyLabel.vue'
 import Labels from '@/components/tasks/partials/Labels.vue'
 import TaskGlanceTooltip from '@/components/tasks/partials/TaskGlanceTooltip.vue'
 import DeferTask from '@/components/tasks/partials/DeferTask.vue'
