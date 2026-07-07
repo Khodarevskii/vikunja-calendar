@@ -342,6 +342,12 @@ async function onAssigneeAdded(row: SubtaskRow, user: IUser) {
 }
 
 async function onAssigneeRemoved(row: SubtaskRow, user: IUser) {
+	// Always drop the user from the row-local list. The × button inside
+	// AssigneeList (in the #items slot) hits us directly and does not go
+	// through Multiselect.remove(), so the shared array is not spliced
+	// for us.
+	row.assignees = row.assignees.filter(u => u.id !== user.id)
+
 	if (!row.taskId) {
 		return
 	}
