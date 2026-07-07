@@ -50,7 +50,13 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 	align-items: center;
 	white-space: nowrap;
 	inline-size: auto !important; // override kanban card width constraints
+	border-radius: 4px;
+    font-size: 0.75rem;
+    background: var(--grey-100);
+	min-height: 24px;
+    padding: 0 0.5rem 0 0.25rem;
 }
+
 
 .freq-icon {
 	inline-size: auto !important;
@@ -74,6 +80,6 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 // Dark theme: keep the palette variables (they already flip) but soften the
 // "onComplete" grey so it stays readable on the dark card background.
 html.dark .freq-onComplete {
-	color: var(--grey-200);
+	color: white;
 }
 </style>
