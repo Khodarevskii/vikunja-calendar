@@ -79,6 +79,7 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	percentDone = 0
 	subtaskWeight = 0
 	checklistItems: ITaskChecklistItem[] = []
+	controlFrequency = 'onComplete'
 	relatedTasks:  Partial<Record<IRelationKind, ITask[]>> = {}
 	attachments: IAttachment[] = []
 	coverImageAttachmentId: IAttachment['id'] = null

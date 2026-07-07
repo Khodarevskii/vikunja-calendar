@@ -115,6 +115,27 @@
 							appear
 						>
 							<div
+								v-if="activeFields.control"
+								class="column"
+							>
+								<!-- Control frequency -->
+								<div class="detail-title">
+									<Icon icon="tachometer-alt" />
+									{{ $t('task.control.title') }}
+								</div>
+								<ControlFrequencySelect
+									:ref="e => setFieldRef('control', e)"
+									v-model="task.controlFrequency"
+									:disabled="!canWrite"
+									@update:modelValue="setControlFrequency"
+								/>
+							</div>
+						</CustomTransition>
+						<CustomTransition
+							name="flash-background"
+							appear
+						>
+							<div
 								v-if="activeFields.dueDate"
 								class="column"
 							>
@@ -523,6 +544,13 @@
 						</XButton>
 						<XButton
 							variant="secondary"
+							icon="tachometer-alt"
+							@click="setFieldActive('control')"
+						>
+							{{ $t('task.control.action') }}
+						</XButton>
+						<XButton
+							variant="secondary"
 							icon="percent"
 							@click="setFieldActive('percentDone')"
 						>
@@ -697,6 +725,7 @@ import type {IRelationKind} from '@/types/IRelationKind'
 import type {IProject} from '@/modelTypes/IProject'
 
 import {PRIORITIES, type Priority} from '@/constants/priorities'
+import type {ControlFrequency} from '@/constants/controlFrequency'
 import {PERMISSIONS} from '@/constants/permissions'
 
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -714,6 +743,7 @@ import EditLabels from '@/components/tasks/partials/EditLabels.vue'
 import Heading from '@/components/tasks/partials/Heading.vue'
 import ProjectSearch from '@/components/tasks/partials/ProjectSearch.vue'
 import PercentDoneSelect from '@/components/tasks/partials/PercentDoneSelect.vue'
+import ControlFrequencySelect from '@/components/tasks/partials/ControlFrequencySelect.vue'
 import PrioritySelect from '@/components/tasks/partials/PrioritySelect.vue'
 import RelatedTasks from '@/components/tasks/partials/RelatedTasks.vue'
 import TaskDecomposition from '@/components/tasks/partials/TaskDecomposition.vue'
@@ -1061,6 +1091,7 @@ type FieldType =
 	| 'assignees'
 	| 'attachments'
 	| 'color'
+	| 'control'
 	| 'dashboardCheck'
 	| 'decompose'
 	| 'dueDate'
@@ -1078,6 +1109,7 @@ const activeFields: { [type in FieldType]: boolean } = reactive({
 	assignees: false,
 	attachments: false,
 	color: false,
+	control: true,
 	dashboardCheck: false,
 	decompose: false,
 	dueDate: false,
@@ -1116,6 +1148,7 @@ const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive(
 	assignees: null,
 	attachments: null,
 	color: null,
+	control: null,
 	dashboardCheck: null,
 	decompose: null,
 	dueDate: null,
@@ -1252,6 +1285,14 @@ async function setPriority(priority: Priority) {
 		priority,
 	}
 
+	return saveTask(newTask)
+}
+
+async function setControlFrequency(controlFrequency: ControlFrequency) {
+	const newTask: ITask = {
+		...task.value,
+		controlFrequency,
+	}
 	return saveTask(newTask)
 }
 

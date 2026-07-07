@@ -1,4 +1,5 @@
 import type {Priority} from '@/constants/priorities'
+import type {ControlFrequency} from '@/constants/controlFrequency'
 
 import type {IAbstract} from './IAbstract'
 import type {IUser} from './IUser'
@@ -48,6 +49,7 @@ export interface ITask extends IAbstract {
 	percentDone: number
 	subtaskWeight: number
 	checklistItems: ITaskChecklistItem[]
+	controlFrequency: ControlFrequency
 	relatedTasks: Partial<Record<IRelationKind, ITask[]>>
 	attachments: IAttachment[]
 	coverImageAttachmentId: IAttachment['id'] | null
