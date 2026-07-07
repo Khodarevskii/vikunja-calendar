@@ -1170,6 +1170,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		"cover_image_attachment_id",
 		"checklist_items",
 		"subtask_weight",
+		"control_frequency",
 	}
 
 	// Validate fields if provided

@@ -84,10 +84,11 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 	border-color: var(--info);
 }
 
+// Light theme (default): white text on a dark grey pill.
 .freq-onComplete {
-	color: var(--grey-700);
-	background: var(--grey-100);
-	border-color: var(--grey-300);
+	color: #ffffff;
+	background: var(--grey-700);
+	border-color: var(--grey-700);
 }
 
 .freq-justDoIt {
@@ -96,13 +97,13 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 	border-color: var(--success);
 }
 
-// Dark theme tweaks — CSS variables already flip most colours, but soft
-// backgrounds need explicit remapping to avoid the "neon block" look.
+// Dark theme: black text on a light grey pill for the default value.
+// CSS variables already flip most other colours automatically.
 :root[data-theme="dark"] {
 	.freq-onComplete {
-		color: var(--grey-200);
-		background: var(--grey-800);
-		border-color: var(--grey-700);
+		color: #000000;
+		background: var(--grey-200);
+		border-color: var(--grey-300);
 	}
 
 	.freq-weekly {
@@ -115,9 +116,9 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		.freq-onComplete {
-			color: var(--grey-200);
-			background: var(--grey-800);
-			border-color: var(--grey-700);
+			color: #000000;
+			background: var(--grey-200);
+			border-color: var(--grey-300);
 		}
 		.freq-weekly {
 			color: #2a1e00;
