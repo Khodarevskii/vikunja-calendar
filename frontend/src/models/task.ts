@@ -82,6 +82,7 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	feedbackRequested = false
 	feedbackManagerId = 0
 	feedbackReviewers: IUser[] = []
+	controlFrequency = 'onComplete'
 	relatedTasks:  Partial<Record<IRelationKind, ITask[]>> = {}
 	attachments: IAttachment[] = []
 	coverImageAttachmentId: IAttachment['id'] = null

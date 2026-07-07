@@ -133,6 +133,11 @@ type Task struct {
 	// Populated on read; managed through the dedicated reviewer endpoints.
 	FeedbackReviewers []*user.User `xorm:"-" json:"feedback_reviewers"`
 
+	// ControlFrequency labels how often the manager wants to check the task.
+	// Free-form string; the frontend uses one of: daily, weekly, biweekly,
+	// onComplete (default), justDoIt.
+	ControlFrequency string `xorm:"varchar(32) NOT NULL DEFAULT 'onComplete'" json:"control_frequency"`
+
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
 	// The task index, calculated per project
@@ -1262,6 +1267,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 		if !fieldSet["subtask_weight"] {
 			t.SubtaskWeight = ot.SubtaskWeight
+		}
+		if !fieldSet["control_frequency"] {
+			t.ControlFrequency = ot.ControlFrequency
 		}
 	}
 
