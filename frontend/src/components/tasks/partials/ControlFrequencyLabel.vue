@@ -44,78 +44,36 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 </script>
 
 <style lang="scss" scoped>
+// Mirror PriorityLabel: coloured icon + coloured text, no pill background.
 .control-freq-label {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.35rem;
-	padding: 0.15rem 0.55rem;
-	border-radius: 999px;
-	font-size: 0.8rem;
-	font-weight: 600;
-	line-height: 1.2;
-	border: 1px solid transparent;
 	white-space: nowrap;
+	inline-size: auto !important; // override kanban card width constraints
 }
 
 .freq-icon {
+	inline-size: auto !important;
+	padding-inline-end: 0.5rem;
 	display: inline-flex;
-	inline-size: auto !important; // override kanban card constraints
 }
 
 .freq-text {
-	// Inherit from the parent pill; declared explicitly to defeat any
-	// framework rule (e.g. Bulma's .label) that could target this child.
 	color: inherit;
 }
 
-// Palette. Uses Vikunja's semantic CSS variables so both light and dark
-// themes are handled automatically — `--danger` / `--warning` / `--info` /
-// `--success` are already tuned per theme.
+// Palette — the whole element (icon + text) picks the same colour.
+.freq-daily     { color: var(--danger); }
+.freq-weekly    { color: var(--warning); }
+.freq-biweekly  { color: var(--info); }
+.freq-justDoIt  { color: var(--success); }
 
-.freq-daily {
-	color: var(--white);
-	background: var(--danger);
-	border-color: var(--danger);
-}
+// Light theme default: dark grey for the neutral value.
+.freq-onComplete { color: var(--grey-700); }
 
-.freq-weekly {
-	color: var(--scheme-invert);
-	background: var(--warning);
-	border-color: var(--warning);
-}
-
-.freq-biweekly {
-	color: var(--white);
-	background: var(--info);
-	border-color: var(--info);
-}
-
-// Light theme (default): white text on a dark grey pill.
-.freq-onComplete {
-	color: #ffffff;
-	background: var(--grey-700);
-	border-color: var(--grey-700);
-}
-
-.freq-justDoIt {
-	color: var(--white);
-	background: var(--success);
-	border-color: var(--success);
-}
-
-// Dark theme: black text on a light grey pill for the default value.
-// Vikunja toggles `class="dark"` on <html>, so we key off that. Vue's
-// scoped-style compiler leaves ancestor selectors alone and only adds the
-// data-* attribute to the leaf class — the compiled rule becomes
-// `html.dark .freq-onComplete[data-v-xxx]` which matches correctly.
+// Dark theme: keep the palette variables (they already flip) but soften the
+// "onComplete" grey so it stays readable on the dark card background.
 html.dark .freq-onComplete {
-	color: #000000;
-	background: var(--grey-200);
-	border-color: var(--grey-300);
-}
-
-html.dark .freq-weekly {
-	// Warning is bright orange in dark mode; darken the text for contrast.
-	color: #2a1e00;
+	color: var(--grey-200);
 }
 </style>
