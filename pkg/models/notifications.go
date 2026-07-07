@@ -415,3 +415,41 @@ func (n *DataExportReadyNotification) ToDB() interface{} {
 func (n *DataExportReadyNotification) Name() string {
 	return "data.export.ready"
 }
+
+// TaskControlFrequencyChangedNotification is sent to every assignee when the
+// task's control frequency changes.
+type TaskControlFrequencyChangedNotification struct {
+	Doer     *user.User `json:"doer"`
+	Task     *Task      `json:"task"`
+	Target   *user.User `json:"-"`
+	OldValue string     `json:"old_value"`
+	NewValue string     `json:"new_value"`
+}
+
+// ToMail renders the email body.
+func (n *TaskControlFrequencyChangedNotification) ToMail(lang string) *notifications.Mail {
+	oldLabel := i18n.T(lang, "task.control.values."+n.OldValue)
+	newLabel := i18n.T(lang, "task.control.values."+n.NewValue)
+	doerName := ""
+	if n.Doer != nil {
+		doerName = n.Doer.GetName()
+	}
+	return notifications.NewMail().
+		Subject(i18n.T(lang, "notifications.task.control_changed.subject", n.Task.Title, n.Task.GetFullIdentifier())).
+		Greeting(i18n.T(lang, "notifications.greeting", n.Target.GetName())).
+		Line(i18n.T(lang, "notifications.task.control_changed.message", doerName, n.Task.Title, oldLabel, newLabel)).
+		Action(i18n.T(lang, "notifications.common.actions.open_task"), n.Task.GetFrontendURL())
+}
+
+// ToDB persists the notification for in-app display.
+func (n *TaskControlFrequencyChangedNotification) ToDB() interface{} { return n }
+
+// Name returns the notification name used for filtering.
+func (n *TaskControlFrequencyChangedNotification) Name() string {
+	return "task.control_changed"
+}
+
+// ThreadID keeps this notification in the same email thread as the task.
+func (n *TaskControlFrequencyChangedNotification) ThreadID() string {
+	return getThreadID(n.Task.ID)
+}

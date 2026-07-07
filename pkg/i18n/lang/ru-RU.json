@@ -99,6 +99,10 @@
 				"multiple_message": "Задачи, у которых истёк срок:",
 				"overdue_since": "%[1]s",
 				"overdue_now": "сейчас"
+			},
+			"control_changed": {
+				"subject": "У задачи «%[1]s» (%[2]s) изменена система контроля",
+				"message": "%[1]s изменил(а) систему контроля задачи «%[2]s» с «%[3]s» на «%[4]s»."
 			}
 		},
 		"project": {
@@ -157,5 +161,16 @@
 		"since_hours": "%[1]d час|%[1]d часа|%[1]d часов",
 		"since_minutes": "%[1]d минута|%[1]d минуты|%[1]d минут",
 		"list_last_separator": "и"
+	},
+	"task": {
+		"control": {
+			"values": {
+				"daily": "Ежедневно",
+				"weekly": "Еженедельно",
+				"biweekly": "Раз в две недели",
+				"onComplete": "По завершению",
+				"justDoIt": "Просто сделайте"
+			}
+		}
 	}
 }

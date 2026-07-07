@@ -28,6 +28,7 @@ import (
 	"code.vikunja.io/api/pkg/config"
 	"code.vikunja.io/api/pkg/events"
 	"code.vikunja.io/api/pkg/log"
+	"code.vikunja.io/api/pkg/notifications"
 	"code.vikunja.io/api/pkg/user"
 	"code.vikunja.io/api/pkg/utils"
 	"code.vikunja.io/api/pkg/web"
@@ -1133,6 +1134,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	// Remember the original subtask weight so we can detect whether it
 	// changed even after ot has been mutated below.
 	originalSubtaskWeight := ot.SubtaskWeight
+	// Same for control frequency — used to decide whether to notify
+	// assignees below.
+	originalControlFrequency := ot.ControlFrequency
 
 	if t.ProjectID == 0 {
 		t.ProjectID = ot.ProjectID
@@ -1506,7 +1510,61 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		t.DoneAt = refreshed.DoneAt
 	}
 
+	// Notify assignees when the control frequency changed.
+	if t.ControlFrequency != originalControlFrequency {
+		if err := notifyAssigneesOfControlFrequencyChange(s, t, a, originalControlFrequency); err != nil {
+			log.Errorf("Could not send control frequency change notifications for task %d: %s", t.ID, err)
+		}
+	}
+
 	return updateProjectLastUpdated(s, &Project{ID: t.ProjectID})
+}
+
+// notifyAssigneesOfControlFrequencyChange emails every assignee (except the
+// user performing the change) about the new control frequency value. Mirrors
+// the shape of SendTaskAssignedNotification but done inline because the
+// update-single-task flow already holds everything we need.
+func notifyAssigneesOfControlFrequencyChange(s *xorm.Session, t *Task, a web.Auth, oldValue string) error {
+	assignees, err := getRawTaskAssigneesForTasks(s, []int64{t.ID})
+	if err != nil {
+		return err
+	}
+	if len(assignees) == 0 {
+		return nil
+	}
+
+	doer, _ := user.GetFromAuth(a)
+
+	task, err := GetTaskByIDSimple(s, t.ID)
+	if err != nil {
+		return err
+	}
+
+	notified := make(map[int64]bool)
+	for i, row := range assignees {
+		if row == nil {
+			continue
+		}
+		if notified[row.User.ID] {
+			continue
+		}
+		if doer != nil && row.User.ID == doer.ID {
+			continue
+		}
+
+		n := &TaskControlFrequencyChangedNotification{
+			Doer:     doer,
+			Task:     &task,
+			Target:   &assignees[i].User,
+			OldValue: oldValue,
+			NewValue: t.ControlFrequency,
+		}
+		if err := notifications.Notify(&assignees[i].User, n); err != nil {
+			return err
+		}
+		notified[row.User.ID] = true
+	}
+	return nil
 }
 
 // updateTasks updates multiple tasks with the same payload.
