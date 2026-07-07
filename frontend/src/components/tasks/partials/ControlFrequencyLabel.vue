@@ -5,10 +5,10 @@
 		class="control-freq-label"
 		:class="`freq-${frequency}`"
 	>
-		<span class="icon">
+		<span class="freq-icon">
 			<Icon icon="tachometer-alt" />
 		</span>
-		<span class="label">{{ label }}</span>
+		<span class="freq-text">{{ label }}</span>
 	</span>
 </template>
 
@@ -57,9 +57,15 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 	white-space: nowrap;
 }
 
-.icon {
+.freq-icon {
 	display: inline-flex;
 	inline-size: auto !important; // override kanban card constraints
+}
+
+.freq-text {
+	// Inherit from the parent pill; declared explicitly to defeat any
+	// framework rule (e.g. Bulma's .label) that could target this child.
+	color: inherit;
 }
 
 // Palette. Uses Vikunja's semantic CSS variables so both light and dark
