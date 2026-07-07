@@ -22,11 +22,11 @@ import {
 
 const props = withDefaults(defineProps<{
 	frequency: ControlFrequency | string,
-	/** Hide the label for the default value on cards to avoid visual noise. */
+	/** Optionally hide the label for the default 'onComplete' value. */
 	hideDefault?: boolean,
 	done?: boolean,
 }>(), {
-	hideDefault: true,
+	hideDefault: false,
 	done: false,
 })
 
