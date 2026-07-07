@@ -98,31 +98,18 @@ const tooltip = computed(() => `${t('task.control.title')}: ${label.value}`)
 }
 
 // Dark theme: black text on a light grey pill for the default value.
-// CSS variables already flip most other colours automatically.
-:root[data-theme="dark"] {
-	.freq-onComplete {
-		color: #000000;
-		background: var(--grey-200);
-		border-color: var(--grey-300);
-	}
-
-	.freq-weekly {
-		// Warning is bright orange in dark mode; darken the text for contrast.
-		color: #2a1e00;
-	}
+// Vikunja toggles `class="dark"` on <html>, so we key off that. Vue's
+// scoped-style compiler leaves ancestor selectors alone and only adds the
+// data-* attribute to the leaf class — the compiled rule becomes
+// `html.dark .freq-onComplete[data-v-xxx]` which matches correctly.
+html.dark .freq-onComplete {
+	color: #000000;
+	background: var(--grey-200);
+	border-color: var(--grey-300);
 }
 
-// Automatic dark preference fallback (when user hasn't picked explicitly).
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
-		.freq-onComplete {
-			color: #000000;
-			background: var(--grey-200);
-			border-color: var(--grey-300);
-		}
-		.freq-weekly {
-			color: #2a1e00;
-		}
-	}
+html.dark .freq-weekly {
+	// Warning is bright orange in dark mode; darken the text for contrast.
+	color: #2a1e00;
 }
 </style>
