@@ -77,6 +77,11 @@
 					:done="task.done"
 					class="is-inline-flex is-align-items-center"
 				/>
+				<ControlFrequencyLabel
+					:frequency="task.controlFrequency"
+					:done="task.done"
+					class="is-inline-flex is-align-items-center"
+				/>
 				<span
 					v-if="task.attachments.length > 0"
 					class="icon"
@@ -120,6 +125,7 @@ import {useRouter} from 'vue-router'
 import {useGlobalNow} from '@/composables/useGlobalNow'
 
 import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
+import ControlFrequencyLabel from '@/components/tasks/partials/ControlFrequencyLabel.vue'
 import ProgressBar from '@/components/misc/ProgressBar.vue'
 import Done from '@/components/misc/Done.vue'
 import Labels from '@/components/tasks/partials/Labels.vue'
