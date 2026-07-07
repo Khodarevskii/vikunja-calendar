@@ -1017,6 +1017,17 @@
       "updated": "Subtasks updated successfully.",
       "error": "An error occurred while creating subtasks."
     },
+    "control": {
+      "title": "Control",
+      "action": "Control",
+      "values": {
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "biweekly": "Every two weeks",
+        "onComplete": "On completion",
+        "justDoIt": "Just do it"
+      }
+    },
     "reminder": {
       "before": "{amount} {unit} before {type}",
       "after": "{amount} {unit} after {type}",

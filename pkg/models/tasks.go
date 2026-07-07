@@ -120,6 +120,11 @@ type Task struct {
 	// position. When rendered, they inherit the parent task's dates.
 	ChecklistItems []*TaskChecklistItem `xorm:"jsonb null" json:"checklist_items"`
 
+	// ControlFrequency labels how often the manager wants to check the task.
+	// Free-form string; the frontend uses one of: daily, weekly, biweekly,
+	// onComplete (default), justDoIt.
+	ControlFrequency string `xorm:"varchar(32) NOT NULL DEFAULT 'onComplete'" json:"control_frequency"`
+
 	// The task identifier, based on the project identifier and the task's index
 	Identifier string `xorm:"-" json:"identifier"`
 	// The task index, calculated per project
@@ -1232,6 +1237,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 		if !fieldSet["subtask_weight"] {
 			t.SubtaskWeight = ot.SubtaskWeight
+		}
+		if !fieldSet["control_frequency"] {
+			t.ControlFrequency = ot.ControlFrequency
 		}
 	}
 
