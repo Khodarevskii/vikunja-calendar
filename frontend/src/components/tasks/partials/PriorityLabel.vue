@@ -4,7 +4,9 @@
 		:class="{
 			'negligible': priority <= priorities.LOW,
 			'not-so-high': priority > priorities.LOW && priority < priorities.HIGH,
-			'high-priority': priority >= priorities.HIGH
+			'high-priority': priority >= priorities.HIGH && priority < priorities.URGENT,
+			'important-priority': priority >= priorities.URGENT && priority < priorities.DO_NOW,
+			'doNow': priority === priorities.DO_NOW
 		}"
 		class="priority-label"
 	>
@@ -51,17 +53,35 @@ const minimumPriority = computed(() => {
 </script>
 
 <style lang="scss" scoped>
+.important-priority {
+	color:#B91C1C;
+	background-color: #FEE2E2;
+	inline-size: auto !important;
+	border-radius: 4px;
+	padding: 0 0.5rem 0 0.25rem; 
+}
+
 .high-priority {
-	color: var(--danger);
-	inline-size: auto !important; // To override the width set in tasks
+	color: #D97706;
+	background-color: #FEF3C7;	
+	border-radius: 4px;
+	padding: 0 0.5rem 0 0.25rem; 
 }
 
-.not-so-high {
-	color: var(--warning);
+.not-so-high  {
+	color: #0369A1;
+	background-color: #E0F2FE;
+	border-radius: 4px;
+	padding: 0 0.5rem 0 0.25rem; 
 }
 
-.negligible {
-	color: var(--info);
+
+.doNow{
+	background-color: white;
+	color:#B91C1C;
+	inline-size: auto !important;
+	border-radius: 4px;
+	padding: 0 0.5rem 0 0.25rem; 
 }
 
 .icon {
