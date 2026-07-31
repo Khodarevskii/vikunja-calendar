@@ -133,6 +133,10 @@
 									</th>
 									<th v-if="activeColumns.controlFrequency">
 										{{ $t('task.control.title') }}
+										<Sort
+											:order="sortBy.control_frequency"
+											@click="sort('control_frequency', $event)"
+										/>
 									</th>
 									<th v-if="activeColumns.labels">
 										{{ $t('task.attributes.labels') }}
