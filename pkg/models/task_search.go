@@ -412,7 +412,7 @@ func (d *dbTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, totalCo
 	}
 
 	query := d.s.
-		Distinct(distinct).
+		Select("DISTINCT " + distinct).
 		Where(cond)
 	if limit > 0 {
 		query = query.Limit(limit, start)
