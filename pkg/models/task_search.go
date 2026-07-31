@@ -383,6 +383,18 @@ func (d *dbTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, totalCo
 	if strings.Contains(orderby, "task_positions.") {
 		distinct += ", task_positions.position"
 	}
+	// Postgres requires every ORDER BY expression used with SELECT DISTINCT
+	// to also appear in the SELECT list. The control_frequency CASE weight
+	// is a computed expression, not a plain column, so include it.
+	if strings.Contains(orderby, "CASE tasks.control_frequency") {
+		distinct += ", (CASE tasks.control_frequency " +
+			"WHEN 'daily' THEN 5 " +
+			"WHEN 'weekly' THEN 4 " +
+			"WHEN 'biweekly' THEN 3 " +
+			"WHEN 'onComplete' THEN 2 " +
+			"WHEN 'justDoIt' THEN 1 " +
+			"ELSE 0 END) AS control_frequency_weight"
+	}
 
 	var expandSubtasks = false
 	for _, expandable := range opts.expand {
@@ -758,6 +770,18 @@ func (t *typesenseTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, 
 	var distinct = "tasks.*"
 	if strings.Contains(orderby, "task_positions.") {
 		distinct += ", task_positions.position"
+	}
+	// Postgres requires every ORDER BY expression used with SELECT DISTINCT
+	// to also appear in the SELECT list. The control_frequency CASE weight
+	// is a computed expression, not a plain column, so include it.
+	if strings.Contains(orderby, "CASE tasks.control_frequency") {
+		distinct += ", (CASE tasks.control_frequency " +
+			"WHEN 'daily' THEN 5 " +
+			"WHEN 'weekly' THEN 4 " +
+			"WHEN 'biweekly' THEN 3 " +
+			"WHEN 'onComplete' THEN 2 " +
+			"WHEN 'justDoIt' THEN 1 " +
+			"ELSE 0 END) AS control_frequency_weight"
 	}
 
 	query := t.s.
