@@ -50,7 +50,8 @@ const (
 	taskPropertyProjectViewID string = "project_view_id"
 	taskPropertyAssignees     string = "assignees"
 	taskPropertyLabels        string = "labels"
-	taskPropertyReminders     string = "reminders"
+	taskPropertyReminders        string = "reminders"
+	taskPropertyControlFrequency string = "control_frequency"
 )
 
 const (
@@ -107,7 +108,8 @@ func validateTaskFieldForSorting(fieldName string) error {
 		taskPropertyUpdated,
 		taskPropertyPosition,
 		taskPropertyBucketID,
-		taskPropertyIndex:
+		taskPropertyIndex,
+		taskPropertyControlFrequency:
 		return nil
 	}
 	return ErrInvalidTaskField{TaskField: fieldName}
