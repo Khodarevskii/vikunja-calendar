@@ -143,6 +143,26 @@ func getOrderByDBStatement(opts *taskSearchOptions) (orderby string, err error) 
 			prefix = "tasks."
 		}
 
+		// control_frequency is a VARCHAR enum. Sorting the raw string gives
+		// alphabetical order ('biweekly', 'daily', 'justDoIt', ...), which is
+		// meaningless to the user. Order by a per-value weight instead so the
+		// dropdown order (daily = heaviest .. justDoIt = lightest) is preserved:
+		// DESC → heaviest first, ASC → lightest first, matching priority.
+		if param.sortBy == taskPropertyControlFrequency {
+			orderby += "(CASE " + prefix + "control_frequency " +
+				"WHEN 'daily' THEN 5 " +
+				"WHEN 'weekly' THEN 4 " +
+				"WHEN 'biweekly' THEN 3 " +
+				"WHEN 'onComplete' THEN 2 " +
+				"WHEN 'justDoIt' THEN 1 " +
+				"ELSE 0 END) " + param.orderBy.String()
+
+			if (i + 1) < len(opts.sortby) {
+				orderby += ", "
+			}
+			continue
+		}
+
 		// Mysql sorts columns with null values before ones without null value.
 		// Because it does not have support for NULLS FIRST or NULLS LAST we work around this by
 		// first sorting for null (or not null) values and then the order we actually want to.
@@ -363,6 +383,18 @@ func (d *dbTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, totalCo
 	if strings.Contains(orderby, "task_positions.") {
 		distinct += ", task_positions.position"
 	}
+	// Postgres requires every ORDER BY expression used with SELECT DISTINCT
+	// to also appear in the SELECT list. The control_frequency CASE weight
+	// is a computed expression, not a plain column, so include it.
+	if strings.Contains(orderby, "CASE tasks.control_frequency") {
+		distinct += ", (CASE tasks.control_frequency " +
+			"WHEN 'daily' THEN 5 " +
+			"WHEN 'weekly' THEN 4 " +
+			"WHEN 'biweekly' THEN 3 " +
+			"WHEN 'onComplete' THEN 2 " +
+			"WHEN 'justDoIt' THEN 1 " +
+			"ELSE 0 END) AS control_frequency_weight"
+	}
 
 	var expandSubtasks = false
 	for _, expandable := range opts.expand {
@@ -380,7 +412,7 @@ func (d *dbTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, totalCo
 	}
 
 	query := d.s.
-		Distinct(distinct).
+		Select("DISTINCT " + distinct).
 		Where(cond)
 	if limit > 0 {
 		query = query.Limit(limit, start)
@@ -738,6 +770,18 @@ func (t *typesenseTaskSearcher) Search(opts *taskSearchOptions) (tasks []*Task, 
 	var distinct = "tasks.*"
 	if strings.Contains(orderby, "task_positions.") {
 		distinct += ", task_positions.position"
+	}
+	// Postgres requires every ORDER BY expression used with SELECT DISTINCT
+	// to also appear in the SELECT list. The control_frequency CASE weight
+	// is a computed expression, not a plain column, so include it.
+	if strings.Contains(orderby, "CASE tasks.control_frequency") {
+		distinct += ", (CASE tasks.control_frequency " +
+			"WHEN 'daily' THEN 5 " +
+			"WHEN 'weekly' THEN 4 " +
+			"WHEN 'biweekly' THEN 3 " +
+			"WHEN 'onComplete' THEN 2 " +
+			"WHEN 'justDoIt' THEN 1 " +
+			"ELSE 0 END) AS control_frequency_weight"
 	}
 
 	query := t.s.

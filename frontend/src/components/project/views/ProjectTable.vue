@@ -38,6 +38,9 @@
 							<FancyCheckbox v-model="activeColumns.priority">
 								{{ $t('task.attributes.priority') }}
 							</FancyCheckbox>
+							<FancyCheckbox v-model="activeColumns.controlFrequency">
+								{{ $t('task.control.title') }}
+							</FancyCheckbox>
 							<FancyCheckbox v-model="activeColumns.labels">
 								{{ $t('task.attributes.labels') }}
 							</FancyCheckbox>
@@ -126,6 +129,13 @@
 										<Sort
 											:order="sortBy.priority"
 											@click="sort('priority', $event)"
+										/>
+									</th>
+									<th v-if="activeColumns.controlFrequency">
+										{{ $t('task.control.title') }}
+										<Sort
+											:order="sortBy.control_frequency"
+											@click="sort('control_frequency', $event)"
 										/>
 									</th>
 									<th v-if="activeColumns.labels">
@@ -234,6 +244,12 @@
 											:show-all="true"
 										/>
 									</td>
+									<td v-if="activeColumns.controlFrequency">
+										<ControlFrequencyLabel
+											:frequency="t.controlFrequency"
+											:done="t.done"
+										/>
+									</td>
 									<td v-if="activeColumns.labels">
 										<Labels :labels="t.labels" />
 									</td>
@@ -307,6 +323,7 @@ import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
 import Done from '@/components/misc/Done.vue'
 import User from '@/components/misc/User.vue'
 import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
+import ControlFrequencyLabel from '@/components/tasks/partials/ControlFrequencyLabel.vue'
 import Labels from '@/components/tasks/partials/Labels.vue'
 import TaskGlanceTooltip from '@/components/tasks/partials/TaskGlanceTooltip.vue'
 import DateTableCell from '@/components/tasks/partials/DateTableCell.vue'
@@ -341,6 +358,7 @@ const ACTIVE_COLUMNS_DEFAULT = {
 	project: false,
 	title: true,
 	priority: false,
+	controlFrequency: false,
 	labels: true,
 	assignees: true,
 	dueDate: true,
