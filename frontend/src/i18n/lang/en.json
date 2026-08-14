@@ -553,6 +553,7 @@
           "assigneesIn": "Matches tasks assigned to either \"user1\" or \"user2\"",
           "priorityOneOrTwoPastDue": "Matches tasks with priority level 1 or 2 and a due date in the past",
           "controlFrequencyDaily": "Matches tasks with daily control frequency",
+          "controlFrequencyIn": "Matches tasks controlled at least once every two weeks (daily, weekly or biweekly)",
           "controlFrequencyBusy": "Matches unfinished tasks that are checked at least once a week"
         }
       }
