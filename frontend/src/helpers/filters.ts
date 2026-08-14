@@ -47,6 +47,7 @@ export const AVAILABLE_FILTER_FIELDS = [
 	'done',
 	'priority',
 	'percentDone',
+	'controlFrequency',
 ]
 
 export const FILTER_OPERATORS = [
