@@ -509,6 +509,7 @@
 					"done": "Выполнена ли задача или нет",
 					"priority": "Приоритет задачи (1-5)",
 					"percentDone": "Процент выполнения задачи (0-100)",
+					"controlFrequency": "Система контроля: daily, weekly, biweekly, onComplete, justDoIt",
 					"dueDate": "Срок задачи",
 					"startDate": "Дата начала задачи",
 					"endDate": "Дата окончания задачи",
