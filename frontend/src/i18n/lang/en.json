@@ -515,7 +515,7 @@
           "done": "Whether the task is completed or not",
           "priority": "The priority level of the task (1-5)",
           "percentDone": "The percentage of completion for the task (0-100)",
-          "controlFrequency": "The control frequency: daily, weekly, biweekly, onComplete, justDoIt",
+          "controlFrequency": "How often the manager checks in on the task. Values (as strings): daily (Ежедневно), weekly (Еженедельно), biweekly (Раз в две недели), onComplete (По завершению — the default for every task), justDoIt (Просто сделайте). Use the operators = / != / in / not in and quote the value, e.g. controlFrequency = \"daily\".",
           "dueDate": "The due date of the task",
           "startDate": "The start date of the task",
           "endDate": "The end date of the task",
@@ -551,7 +551,9 @@
           "dueDatePast": "Matches tasks with a due date in the past",
           "undoneHighPriority": "Matches undone tasks with priority level 3 or higher",
           "assigneesIn": "Matches tasks assigned to either \"user1\" or \"user2\"",
-          "priorityOneOrTwoPastDue": "Matches tasks with priority level 1 or 2 and a due date in the past"
+          "priorityOneOrTwoPastDue": "Matches tasks with priority level 1 or 2 and a due date in the past",
+          "controlFrequencyDaily": "Matches tasks with daily control frequency",
+          "controlFrequencyBusy": "Matches unfinished tasks that are checked at least once a week"
         }
       }
     }

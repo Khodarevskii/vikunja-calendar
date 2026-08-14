@@ -67,6 +67,14 @@ const showDocs = ref(false)
 				<code>(priority = 1 || priority = 2) &amp;&amp; dueDate &lt;= now</code>:
 				{{ $t('filters.query.help.examples.priorityOneOrTwoPastDue') }}
 			</li>
+			<li>
+				<code>controlFrequency = "daily"</code>:
+				{{ $t('filters.query.help.examples.controlFrequencyDaily') }}
+			</li>
+			<li>
+				<code>controlFrequency in daily, weekly &amp;&amp; done = false</code>:
+				{{ $t('filters.query.help.examples.controlFrequencyBusy') }}
+			</li>
 		</ul>
 	</Expandable>
 </template>
